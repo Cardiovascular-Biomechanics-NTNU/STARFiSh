@@ -3,7 +3,10 @@ from copy import deepcopy
 import sys, os
 from math import pi, cos, sin
 import numpy as np
-from scipy.integrate import simps
+try:
+    from scipy.integrate import simps
+except ImportError:
+    from scipy.integrate import simpson as simps
 
 ## TODO: needsto be imported as modules
 from .moduleGrids import *
@@ -597,7 +600,6 @@ class Vessel(cSBO.StarfishBaseObject):
         self.positionStart[n]  = positionEndMother ## positionStart
         self.rotToGlobalSys[n] = rotToGlobalSys
         self.netGravity[n]     = netGravity
-
 
 
 

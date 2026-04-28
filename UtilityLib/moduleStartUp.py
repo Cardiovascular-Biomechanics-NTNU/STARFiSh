@@ -128,6 +128,8 @@ def parseOptions(activeOptions, visualisationOnly = False, vascularPolynomialCha
             
             if optionArgument == None:
                 optionArgument = defineVisualisation()
+            else:
+                optionArgument = int(optionArgument)
             
             if optionArgument == 1:
                 vizOutput = "2D+3D"
@@ -145,7 +147,7 @@ def parseOptions(activeOptions, visualisationOnly = False, vascularPolynomialCha
                     resimulate = optionArgument
         elif option == 'workingDirectory':
             if optionArgument != None:
-                insertWorkingDirectory(optionArgument)
+                mFPH.insertWorkingDirectory(optionArgument)
                 exit()
         elif option == 'workingDirectorySettings':
             if optionArgument != None:

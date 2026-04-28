@@ -1,15 +1,44 @@
 #!/usr/bin/env python
-import gtk
-import gobject
+import os
+import warnings
+os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib-starfish')
+os.environ.setdefault('XDG_CACHE_HOME', '/tmp')
+os.environ.setdefault('NO_AT_BRIDGE', '1')
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+try:
+    import gtk
+    import gobject
+    matplotlibBackend = 'GTKAgg'
+    from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
+    from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
+except ImportError:
+    from gi import pygtkcompat
+    pygtkcompat.enable()
+    pygtkcompat.enable_gtk(version='3.0')
+    from gi.repository import GLib
+    import gtk
+    import gobject
+    matplotlibBackend = 'GTK3Agg'
+    from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+    from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
+    class NavigationToolbar(NavigationToolbar2GTK3):
+        def __init__(self, canvas, window=None):
+            super(NavigationToolbar, self).__init__(canvas)
+
+        def configure_subplots(self, *args, **kwargs):
+            try:
+                return super(NavigationToolbar, self).configure_subplots(*args, **kwargs)
+            except Exception as error:
+                print("WARNING: subplot configuration dialog is unavailable: {}".format(error))
+else:
+    GLib = None
 import matplotlib
-matplotlib.use('GTKAgg')
+matplotlib.use(matplotlibBackend)
 import matplotlib.pyplot as plt   
 from matplotlib.figure import Figure
 # uncomment to select /GTK/GTKAgg/GTKCairo
 # from matplotlib.backends.backend_gtk import FigureCanvasGTK as FigureCanvas
-from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
 # from matplotlib.backends.backend_gtkcairo import FigureCanvasGTKCairo as FigureCanvas
-from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
 
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Rectangle
@@ -17,6 +46,12 @@ from matplotlib.patches import Rectangle
 import sys, os
 cur = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(cur + '/../')
+
+def newTextComboBox():
+    try:
+        return gtk.ComboBoxText()
+    except AttributeError:
+        return gtk.combo_box_new_text()
 
 #sys.path.append(cur + '/../UtilityLib')
 import UtilityLib.processing as mProc
@@ -100,7 +135,7 @@ class Visualisation2DPlotWindowAdjustValues(gtk.Window):
                 except: pass
                 
                 if comboChoices != None:
-                    entry = gtk.combo_box_new_text() 
+                    entry = newTextComboBox() 
                     for choice in comboChoices:
                         entry.append_text(choice)
                     entry.set_active(comboChoices.index(value)) 
@@ -146,7 +181,7 @@ class Visualisation2DPlotWindowAdjustValues(gtk.Window):
                     
                 else:
                     text = entry.get_text()
-                    if text is not '':
+                    if text != '':
                         try: type = self.variableTypes[key][index]
                         except: type = 'float'
                         #TODO: Try Except Pass should be fixed
@@ -257,7 +292,7 @@ class Visualisation2DPlotWindowGui(gtk.Window):
         
         toolbar = NavigationToolbar(self.canvas, self)
         
-        cbType = gtk.combo_box_new_text()
+        cbType = newTextComboBox()
         cbType.append_text('Plot P,Q')
         cbType.append_text('Plot P,Q with wave split')
         cbType.append_text('Plot P,Q with wave split - mean values')
@@ -268,7 +303,7 @@ class Visualisation2DPlotWindowGui(gtk.Window):
         cbType.set_active(0) 
         cbType.connect("changed", self.on_changePlotType)
         
-        self.cbXaxis = gtk.combo_box_new_text()
+        self.cbXaxis = newTextComboBox()
         self.cbXaxis.connect("changed", self.on_changePlotXaxis)
         self.cbXaxis.append_text('Plot over Time')
         self.cbXaxis.append_text('Plot over Space')
@@ -426,7 +461,7 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
         '''
         create graph with 2 subplots and all necessary lines 
         '''
-        self.fig = plt.figure(figsize=(5, 4), dpi=100, edgecolor='k')
+        self.fig = Figure(figsize=(5, 4), dpi=100, edgecolor='k')
         self.fig.subplots_adjust(right=0.86)
         self.fig.subplots_adjust(left=0.17)
         self.fig.subplots_adjust(top=0.95)
@@ -440,17 +475,16 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
         from matplotlib import rcParams
         
         rcParams['text.usetex'] = False
-        rcParams['text.latex.unicode'] = True
         rcParams['font.family'] = 'sans-serif'
         rcParams['font.size'] = self.fontSizeLabel
         rcParams['savefig.dpi'] = 300.
         
-        ax1 = plt.subplot(2, 1, 1, frameon=True)
+        ax1 = self.fig.add_subplot(2, 1, 1, frameon=True)
         
         ax12 = ax1.twinx()
         ax12.set_visible(False)
         
-        plt.xticks(np.linspace(ax1.get_xlim()[0], ax1.get_xlim()[1], 2), ['', '']) 
+        ax1.set_xticks(np.linspace(ax1.get_xlim()[0], ax1.get_xlim()[1], 2), ['', '']) 
         ax1.tick_params(axis='x', top='off', bottom='off')
         ax1.spines['bottom'].set_visible(False)
         ax1.spines['top'].set_visible(False)
@@ -459,7 +493,7 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
                 
         #plt.yticks(np.linspace(ax12.get_xlim()[0], ax12.get_xlim()[1], 2), ['', '']) 
                 
-        ax2 = plt.subplot(2, 1, 2, frameon=True)
+        ax2 = self.fig.add_subplot(2, 1, 2, frameon=True)
         ax2.spines['top'].set_visible(False)
         ax2.tick_params(axis='x', top='off')
         ax2.spines['right'].set_visible(False)
@@ -1201,23 +1235,23 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
         This function evaluates all limits for the plots
         It may take a while to calculate all
         '''     
-        self.limits = {'P':         [1e50, -1e50],
-                       'Pf':        [1e50, -1e50],
-                       'Pb':        [1e50, -1e50],
-                       'Pfb':       [1e50, -1e50],
-                       'PfbLev':    [1e50, -1e50],
-                       'Q':         [1e50, -1e50],
-                       'Qf':        [1e50, -1e50],
-                       'Qb':        [1e50, -1e50],
-                       'Qfb':       [1e50, -1e50],
-                       'QfbLev':    [1e50, -1e50],
-                       'Time':      [0, -1e50],
-                       'Space':     [0, -1e50],
-                       'c':         [1e50, -1e50],
+        self.limits = {'P':         [np.inf, -np.inf],
+                       'Pf':        [np.inf, -np.inf],
+                       'Pb':        [np.inf, -np.inf],
+                       'Pfb':       [np.inf, -np.inf],
+                       'PfbLev':    [np.inf, -np.inf],
+                       'Q':         [np.inf, -np.inf],
+                       'Qf':        [np.inf, -np.inf],
+                       'Qb':        [np.inf, -np.inf],
+                       'Qfb':       [np.inf, -np.inf],
+                       'QfbLev':    [np.inf, -np.inf],
+                       'Time':      [0, -np.inf],
+                       'Space':     [0, -np.inf],
+                       'c':         [np.inf, -np.inf],
                        'CFL':       [ 0, 1.1],
-                       'A':         [1e50, -1e50],
-                       'C':         [1e50, -1e50],
-                       'gridNodes': [0, -1e50],
+                       'A':         [np.inf, -np.inf],
+                       'C':         [np.inf, -np.inf],
+                       'gridNodes': [0, -np.inf],
                        'G':         [-0.25, 0.25]}
         
         for i, vascularNetwork, vesselId in zip(range(len(self.selectedVesselIds)),
@@ -1450,7 +1484,8 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
         if widget.get_active():
             self.limitsWindow = Visualisation2DPlotWindowAdjustValues(self,'limits',self.limits,self.limitsInit)    
         else:
-            self.limitsWindow.destroy()
+            try: self.limitsWindow.destroy()
+            except: pass
             self.limitsWindow = None
         
         self.updatePlotWindow()
@@ -1468,7 +1503,8 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
         if widget.get_active():
             self.labelsWindow = Visualisation2DPlotWindowAdjustValues(self,'labels',self.labels,self.labelsInit,self.labelsTypes)    
         else:
-            self.labelsWindow.destroy()
+            try: self.labelsWindow.destroy()
+            except: pass
             self.labelsWindow = None
         
         self.updatePlotWindow()
@@ -1485,7 +1521,8 @@ class Visualisation2DPlotWindow(Visualisation2DPlotWindowGui):
                                                                     self.linePropertiesTypes,
                                                                     self.linePropertiesChoices)
         else:
-            self.lineWindow.destroy()
+            try: self.lineWindow.destroy()
+            except: pass
             self.lineWindow = None
         
         self.updatePlotWindow()
@@ -1509,12 +1546,12 @@ class Visualisation2DMainCase(object):
         self.networkDescription.set_size_request(400, 35)
         # # Combo boxes
         # vessel chooser
-        self.comboBoxVessels = gtk.combo_box_new_text()
+        self.comboBoxVessels = newTextComboBox()
         self.comboBoxVessels.append_text("choose vessel")
         self.comboBoxVessels.connect("changed", self.on_changedCBvessels) 
         self.comboBoxVessels.set_active(0)  
         # Network SolutionData chooser
-        self.comboBoxNetworks = gtk.combo_box_new_text()
+        self.comboBoxNetworks = newTextComboBox()
         self.comboBoxNetworks.append_text("choose simulation case")
         self.comboBoxNetworks.connect("changed", self.on_changedNetworkComboBox) 
         self.comboBoxNetworks.set_size_request(250, 35)
@@ -1554,7 +1591,10 @@ class Visualisation2DMainCase(object):
         self.comboBoxVessels.append_text("choose vessel")
         for vesselName in self.networkInfo[self.currentNetwork][0]:
             self.comboBoxVessels.append_text(vesselName)
-        self.comboBoxVessels.set_active(0)
+        if len(self.networkInfo[self.currentNetwork][0]) > 0:
+            self.comboBoxVessels.set_active(1)
+        else:
+            self.comboBoxVessels.set_active(0)
                         
     def updateNetworkComboBox(self, networkCases, networkInfo):
         '''
@@ -1737,7 +1777,13 @@ class Visualisation2DMain(Visualisation2DMainGUI):
         self.networkCases = [ "choose simulation case"]
         self.networkInfo  = { "choose simulation case"   : [[], '-'] }
         
-        self.loadVascularNetwork(networkName, dataNumber)
+        if networkName is not None and dataNumber is not None:
+            self.loadVascularNetwork(networkName, dataNumber)
+            if connect:
+                if GLib is not None:
+                    GLib.idle_add(self.on_clickedPlots, None)
+                else:
+                    gobject.idle_add(self.on_clickedPlots, None)
 
     def on_clickedPlots(self, widget):
         '''

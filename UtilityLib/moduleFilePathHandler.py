@@ -363,7 +363,7 @@ def saveConfigFile(configurations):
             if option in existingOptions:
                 Config.set('Directory Paths', option, config)
                     
-    with open(getFilePath('configFile', '','',  'write'), 'wb') as configfile:
+    with open(getFilePath('configFile', '','',  'write'), 'w') as configfile:
         Config.write(configfile)
     
 def updateKnownWorkingDirectories():
@@ -475,7 +475,7 @@ def updateSimulationDescriptions(networkName, currentDataNumber, currentDescript
     except:
         simCaseDescFilePath = getFilePath('simulationDescriptionFile', networkName, currentDataNumber, 'write')#, exception = 'No')
     
-        simCaseDescFile = file(simCaseDescFilePath, 'w+')
+        simCaseDescFile = open(simCaseDescFilePath, 'w+')
         simCaseDescFile.write("DataNumber   Description \n")
         simCaseDescFile.close()
         simCaseDescFile = open(simCaseDescFilePath, 'r')
@@ -579,7 +579,8 @@ def setFlowFromFilePathToAbsolute(fileName, pathDestinationNetwork):
                         for bcTag in bc:
                             if bcTag.tag == 'filePathName':
                                 oldFilePath = bcTag.text
-                                bcTag.text = pathDestinationNetwork + oldFilePath
+                                if not os.path.isabs(oldFilePath):
+                                    bcTag.text = os.path.join(pathDestinationNetwork, oldFilePath)
     
     tree.write(fileName)
     

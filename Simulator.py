@@ -15,7 +15,10 @@ import UtilityLib.moduleXML as mXML
 import UtilityLib.moduleStartUp as mStartUp #import parseOptions
 import UtilityLib.moduleFilePathHandler as mFPH
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
 
 import gc
 
@@ -60,14 +63,14 @@ def main():
     vascularNetwork.update({'description':simulationDescription,
                             'dataNumber' :dataNumber})
     
-    timeSolverInitStart = time.clock()
+    timeSolverInitStart = time.perf_counter()
     #initialize Solver
     flowSolver = c1DFlowSolv.FlowSolver(vascularNetwork)
-    timeSolverInit = time.clock()-timeSolverInitStart
-    timeSolverSolveStart = time.clock()
+    timeSolverInit = time.perf_counter()-timeSolverInitStart
+    timeSolverSolveStart = time.perf_counter()
     #solve the system
     flowSolver.solve()
-    timeSolverSolve = time.clock()-timeSolverSolveStart
+    timeSolverSolve = time.perf_counter()-timeSolverSolveStart
     
     minutesInit = int(timeSolverInit/60.)
     secsInit = timeSolverInit-minutesInit*60.

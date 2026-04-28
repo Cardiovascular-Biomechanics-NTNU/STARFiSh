@@ -185,7 +185,8 @@ class ImageTextButton(TextButton):
     def loadImage(self,image):
         self._image = pyglet.image.load(image)
         self._sprite = pyglet.sprite.Sprite(self._image)
-        self._sprite.set_position(self.x+2 , self.y + 2)
+        self._sprite.x = self.x + 2
+        self._sprite.y = self.y + 2
         self._sprite.scale =  (self.height-4.)/self._image.height
         
     text  = property(lambda self: self._text.text, set_text)

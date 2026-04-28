@@ -24,7 +24,6 @@ from pyglet.window import mouse, key
 from pyglet.window.key import MOTION_UP,MOTION_DOWN
 
 import matplotlib.animation as animation
-from matplotlib._png import read_png
 from pylab import *    
 
 
@@ -54,7 +53,7 @@ class WindowLUT(pyglet.window.Window):
         for i in range(7):
             self.scaleText.append(pyglet.text.Label('125.00', anchor_x='right', anchor_y='center',color=(0, 0, 0, 255)))
             
-        self.quantity = pyglet.text.Label('Pressure', anchor_x='left', anchor_y='bottom',color=(0, 0, 0, 255), bold=1)
+        self.quantity = pyglet.text.Label('Pressure', anchor_x='left', anchor_y='bottom',color=(0, 0, 0, 255), weight='bold')
         self.unit     = pyglet.text.Label('mmHg', anchor_x='right', anchor_y='bottom',color=(0, 0, 0, 255), font_size = 10 )
         self.unitFactor = 1./133.32
         

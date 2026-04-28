@@ -40,11 +40,14 @@ class Field():
         self.step = "predictor"
                        
         if solvingSchemeField == 'MacCormack_Matrix':
-            self.__call__ = self.MacCormackMatrix
+            self.call = self.MacCormackMatrix
         elif solvingSchemeField == "MacCormack_Flux":
-            self.__call__ = self.MacCormackFlux
+            self.call = self.MacCormackFlux
         else:
             raise ValueError('Classfields51: error, scheme for solving field not correct')
+
+    def __call__(self):
+        return self.call()
         
     def F(self,u,A,C,Aconst,Cconst):
     

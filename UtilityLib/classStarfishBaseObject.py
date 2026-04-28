@@ -148,8 +148,7 @@ class StarfishBaseObject(classConfigurableObjectBase.ConfigurableObjectBase):
         else:
             try: raise
             except Exception as e:
-                raise type(e)(type(e)(e.message + "\nAppended : " + infoString)).with_traceback(sys.exc_info()[2])
-
+                raise type(e)(str(e) + "\nAppended : " + infoString).with_traceback(sys.exc_info()[2])
 
 
 

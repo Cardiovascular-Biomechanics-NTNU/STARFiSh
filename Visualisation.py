@@ -27,7 +27,7 @@ def main():
         
 
     string1 = ' '.join([sys.executable, cur+'/VisualisationLib/class2dVisualisation.py', '-f', networkName, '-n',dataNumber, '-c']) 
-    string2 = ' '.join([sys.executable, cur + '/VisualisationLib/class3dVisualisation.py', '-f', networkName, '-n',dataNumber, '-c True']) 
+    string2 = ' '.join([sys.executable, '-m', 'VisualisationLib.class3dVisualisation', '-f', networkName, '-n',dataNumber, '-c True']) 
     
     if vizOutput == "2D":
         

@@ -31,10 +31,19 @@ import colorsys
 import time
 import re
 
-import gobject
-import gtk
-import gtk.gdk
-import gtk.keysyms
+try:
+    import gobject
+    import gtk
+    import gtk.gdk
+    import gtk.keysyms
+except ImportError:
+    from gi import pygtkcompat
+    pygtkcompat.enable()
+    pygtkcompat.enable_gtk(version='3.0')
+    import gobject
+    import gtk
+    import gtk.gdk
+    import gtk.keysyms
 import cairo
 import pango
 import pangocairo
@@ -1426,7 +1435,6 @@ class DotWidget(gtk.DrawingArea):
     """PyGTK widget that draws dot graphs."""
 
     __gsignals__ = {
-        'expose-event': 'override',
         'clicked' : (gobject.SIGNAL_RUN_LAST, gobject.TYPE_NONE, (gobject.TYPE_STRING, gtk.gdk.Event))
     }
 
@@ -1438,7 +1446,10 @@ class DotWidget(gtk.DrawingArea):
         self.graph = Graph()
         self.openfilename = None
 
-        self.set_flags(gtk.CAN_FOCUS)
+        if hasattr(self, 'set_flags'):
+            self.set_flags(gtk.CAN_FOCUS)
+        else:
+            self.set_can_focus(True)
 
         self.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK)
         self.connect("button-press-event", self.on_area_button_press)
@@ -1497,8 +1508,8 @@ class DotWidget(gtk.DrawingArea):
 
     def set_dotcode(self, dotcode, filename=None):
         self.openfilename = None
-        if isinstance(dotcode, str):
-            dotcode = dotcode.encode('utf8')
+        if isinstance(dotcode, bytes):
+            dotcode = dotcode.decode('utf8')
         xdotcode = self.run_filter(dotcode)
         if xdotcode is None:
             return False
@@ -1543,16 +1554,7 @@ class DotWidget(gtk.DrawingArea):
                 self.reload()
         return True
 
-    def do_expose_event(self, event):
-        cr = self.window.cairo_create()
-
-        # set a clip region for the expose event
-        cr.rectangle(
-            event.area.x, event.area.y,
-            event.area.width, event.area.height
-        )
-        cr.clip()
-
+    def draw_graph(self, cr):
         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
         cr.paint()
 
@@ -1568,6 +1570,21 @@ class DotWidget(gtk.DrawingArea):
         self.drag_action.draw(cr)
 
         return False
+
+    def do_draw(self, cr):
+        return self.draw_graph(cr)
+
+    def do_expose_event(self, event):
+        cr = self.window.cairo_create()
+
+        # set a clip region for the expose event
+        cr.rectangle(
+            event.area.x, event.area.y,
+            event.area.width, event.area.height
+        )
+        cr.clip()
+
+        return self.draw_graph(cr)
 
     def get_current_pos(self):
         return self.x, self.y
@@ -1906,10 +1923,10 @@ class DotWindow(gtk.Window):
         vbox = gtk.VBox()
         window.add(vbox)
 
-        self.widget = DotWidget()
+        self.dot_widget = DotWidget()
         
         ## added by Vinzenz Eck for compliance to STARFiSh
-        self.set_vascularNetwork = self.widget.set_vascularNetwork
+        self.set_vascularNetwork = self.dot_widget.set_vascularNetwork
 
         # Create a UIManager instance
         uimanager = self.uimanager = gtk.UIManager()
@@ -1926,10 +1943,10 @@ class DotWindow(gtk.Window):
         actiongroup.add_actions((
             ('Open', gtk.STOCK_OPEN, None, None, None, self.on_open),
             ('Reload', gtk.STOCK_REFRESH, None, None, None, self.on_reload),
-            ('ZoomIn', gtk.STOCK_ZOOM_IN, None, None, None, self.widget.on_zoom_in),
-            ('ZoomOut', gtk.STOCK_ZOOM_OUT, None, None, None, self.widget.on_zoom_out),
-            ('ZoomFit', gtk.STOCK_ZOOM_FIT, None, None, None, self.widget.on_zoom_fit),
-            ('Zoom100', gtk.STOCK_ZOOM_100, None, None, None, self.widget.on_zoom_100),
+            ('ZoomIn', gtk.STOCK_ZOOM_IN, None, None, None, self.dot_widget.on_zoom_in),
+            ('ZoomOut', gtk.STOCK_ZOOM_OUT, None, None, None, self.dot_widget.on_zoom_out),
+            ('ZoomFit', gtk.STOCK_ZOOM_FIT, None, None, None, self.dot_widget.on_zoom_fit),
+            ('Zoom100', gtk.STOCK_ZOOM_100, None, None, None, self.dot_widget.on_zoom_100),
         ))
 
         # Add the actiongroup to the uimanager
@@ -1942,24 +1959,24 @@ class DotWindow(gtk.Window):
         toolbar = uimanager.get_widget('/ToolBar')
         vbox.pack_start(toolbar, False)
 
-        vbox.pack_start(self.widget)
+        vbox.pack_start(self.dot_widget)
 
-        self.set_focus(self.widget)
+        self.set_focus(self.dot_widget)
 
         self.show_all()
 
     def set_filter(self, filter):
-        self.widget.set_filter(filter)
+        self.dot_widget.set_filter(filter)
 
     def set_dotcode(self, dotcode, filename=None):
-        if self.widget.set_dotcode(dotcode, filename):
+        if self.dot_widget.set_dotcode(dotcode, filename):
             self.update_title(filename)
-            self.widget.zoom_to_fit()
+            self.dot_widget.zoom_to_fit()
 
     def set_xdotcode(self, xdotcode, filename=None):
-        if self.widget.set_xdotcode(xdotcode):
+        if self.dot_widget.set_xdotcode(xdotcode):
             self.update_title(filename)
-            self.widget.zoom_to_fit()
+            self.dot_widget.zoom_to_fit()
         
     def update_title(self, filename=None):
         if filename is None:
@@ -2004,7 +2021,7 @@ class DotWindow(gtk.Window):
             chooser.destroy()
 
     def on_reload(self, action):
-        self.widget.reload()
+        self.dot_widget.reload()
 
 
 def main():

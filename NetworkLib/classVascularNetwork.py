@@ -645,7 +645,7 @@ class VascularNetwork(cSBO.StarfishBaseObject):
             else:
                 logger.debug("venous pool has no volume")
 
-        return cumVolume
+        return float(np.asarray(cumVolume).squeeze())
 
     def saveSolutionData(self):
         """

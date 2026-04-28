@@ -35,7 +35,6 @@ from pyglet.window import mouse, key
 from pyglet.window.key import MOTION_UP,MOTION_DOWN
 
 import matplotlib.animation as animation
-from matplotlib._png import read_png
 from pylab import *
 
 
@@ -53,8 +52,11 @@ class Visualisation3DGUI(pyglet.window.Window):
         samples         = 4
         sample_buffers  = 1
 
-        platform = pyglet.window.get_platform()
-        display = platform.get_default_display()
+        if hasattr(pyglet.window, 'get_platform'):
+            platform = pyglet.window.get_platform()
+            display = platform.get_default_display()
+        else:
+            display = pyglet.display.get_display()
         screen = display.get_default_screen()
 
         templateHigh = pyglet.gl.Config(sample_buffers=sample_buffers,
@@ -1364,4 +1366,3 @@ if __name__ == '__main__':
         ### garbage collection
         gc.collect()
         del visualisation3D
-

@@ -40,7 +40,7 @@ def writeVesselDataToCSV(networkName, vessels, delimiter=';'):
                 
     ## openFile and create writer
     vesselCSVFile = mFPH.getFilePath('vesselCSVFile', networkName, 'xxx', 'write')
-    writer = ccBC.csv.DictWriter(open(vesselCSVFile,'wb'),tags,delimiter=delimiter)
+    writer = ccBC.csv.DictWriter(open(vesselCSVFile,'w', newline=''),tags,delimiter=delimiter)
     
     # write first row == tags
     firstRow = {}
@@ -84,7 +84,7 @@ def readVesselDataFromCSV(networkName, delimiter=';'):
         return None
     
     
-    with open(vesselCSVFile,'rb') as csvfile:
+    with open(vesselCSVFile,'r', newline='') as csvfile:
         dialect = csv.Sniffer().sniff(csvfile.read(1024), delimiters=";,")
         csvfile.seek(0)
         
@@ -136,7 +136,7 @@ def writeRandomInputstoCSV(networkName, randomInputManager, delimiter = ';'):
     variablesToSaveTags.extend(['randomInputType','location'])
     # create writer 
     randomVariableCSVFile = mFPH.getFilePath('randomVariableCSVFile', networkName,'xxx', 'write', exception = 'Warning')
-    writer = csv.DictWriter(open(randomVariableCSVFile,'wb'),variablesToSaveTags, delimiter=delimiter)
+    writer = csv.DictWriter(open(randomVariableCSVFile,'w', newline=''),variablesToSaveTags, delimiter=delimiter)
     
     firstRow = {key: key for key in variablesToSaveTags}
     writer.writerow(firstRow)
@@ -158,7 +158,7 @@ def readRandomInputsfromCSV(networkName, randomInputManager, delimiter = ';'):
     
     # create reader
     randomVariableCSVFile = mFPH.getFilePath('randomVariableCSVFile', networkName,'xxx', 'read', exception = 'Warning')
-    reader = csv.DictReader(open(randomVariableCSVFile,'rb'), delimiter=delimiter)
+    reader = csv.DictReader(open(randomVariableCSVFile,'r', newline=''), delimiter=delimiter)
         
     # evaluate tags
     variablesToLoadTags = []
@@ -223,7 +223,7 @@ def writeBCToCSV(networkName, boundaryConditionDict, boundaryConditionPolyChaos,
     tags = tagsBCType1
     
     boundaryCSVFile = mFPH.getFilePath('boundaryCSVFile', networkName, 'xxx', 'write')
-    writer = ccBC.csv.DictWriter(open(boundaryCSVFile,'wb'),tags,delimiter=delimiter)
+    writer = ccBC.csv.DictWriter(open(boundaryCSVFile,'w', newline=''),tags,delimiter=delimiter)
     
     # write Tag row
     firstRow = {}
@@ -282,7 +282,7 @@ def readBCFromCSV(networkName, delimiter=';'):
     """
     
     boundaryCSVFile = mFPH.getFilePath('boundaryCSVFile', networkName, 'xxx', 'read', exception = 'Warning')
-    reader = ccBC.csv.DictReader(open(boundaryCSVFile,'rb'),delimiter=delimiter)
+    reader = ccBC.csv.DictReader(open(boundaryCSVFile,'r', newline=''),delimiter=delimiter)
     
     # hash data with in dictionary and separate units
     columUnits = {}

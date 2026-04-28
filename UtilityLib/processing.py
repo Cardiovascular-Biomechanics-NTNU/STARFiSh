@@ -342,8 +342,8 @@ def minMaxFunction(arrayToEvaluate,timeValues=np.array([]),delta=0.025, seperate
     x = np.arange(lenAtE)
     if len(timeValues) == 0:
         timeValues = x
-    mn, mx = np.Inf, -np.Inf
-    mnpos, mxpos = np.NaN, np.NaN
+    mn, mx = np.inf, -np.inf
+    mnpos, mxpos = np.nan, np.nan
     
     # adjust delta as percentage of min-max range of signal to adapt to different signal magnitudes
     delta = (np.max(arrayToEvaluate)-np.min(arrayToEvaluate))*delta

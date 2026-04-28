@@ -83,11 +83,11 @@ class Link():
         solvingScheme = "NonLinear"
         # Define the call function depending on the solving Scheme
         if solvingScheme == "Linear": 
-            self.__call__ = self.callLinear
+            self.call = self.callLinear
         elif solvingScheme == "NonLinear":
-            self.__call__ = self.callNonLinear
+            self.call = self.callNonLinear
         elif solvingScheme == "Stenosis":
-            self.__call__ = self.callStenosisYoungAndTsai
+            self.call = self.callStenosisYoungAndTsai
         else:
             raise ImportError("Connections wrong solving scheme! {}".format(solvingScheme))
     
@@ -100,6 +100,9 @@ class Link():
         self.maxPError = 0
         self.sumPErrorCount = 0
         self.sumPErrorNonLinCount = 0
+
+    def __call__(self):
+        return self.call()
     
     def callLinear(self):
         """
@@ -856,9 +859,9 @@ class Bifurcation():
         solvingScheme = "NonLinear"
         # Define the call function depending on the solving Scheme
         if solvingScheme == "Linear": 
-            self.__call__ = self.callLinear
+            self.call = self.callLinear
         elif solvingScheme == "NonLinear":
-            self.__call__ = self.callNonLinear
+            self.call = self.callNonLinear
         else:
             raise ImportError("Connections wrong solving scheme! {}".format(solvingScheme))
         
@@ -869,6 +872,9 @@ class Bifurcation():
         self.maxPError = 0
         self.sumPErrorCount = 0
         self.sumPErrorNonLinCount = 0
+
+    def __call__(self):
+        return self.call()
     
     def callLinear(self):
         """
@@ -1596,10 +1602,10 @@ class Anastomosis():
         # Define the call function depending on the solving Scheme
         solvingScheme = "NonLinear"
         if solvingScheme == "Linear": 
-            self.__call__ = self.callLinear
+            self.call = self.callLinear
         elif solvingScheme == "NonLinear":
             print("classconnection 1652: using nonlinear anastomosis model: {0}".format(self.name)) 
-            self.__call__ = self.callNonLinear
+            self.call = self.callNonLinear
         else:
             raise ValueError("Connections; wrong solving scheme! {}".format(solvingScheme))
         
@@ -1610,6 +1616,9 @@ class Anastomosis():
         self.maxPError = 0
         self.sumPErrorCount = 0
         self.sumPErrorNonLinCount = 0
+
+    def __call__(self):
+        return self.call()
     
     def callLinear(self):
         """

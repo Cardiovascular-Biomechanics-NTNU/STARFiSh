@@ -190,8 +190,8 @@ class FlowSolver(cSBO.StarfishBaseObject):
 
         automaticGridCorrection = {}
 
-        logfile = open(str(topFolder+'LOGcurrentWaveSpeed.txt'),'wb')
-        logfile2 = open(str(topFolder+'LOGproposedGrid.txt'),'wb')
+        logfile = open(str(topFolder+'LOGcurrentWaveSpeed.txt'),'w')
+        logfile2 = open(str(topFolder+'LOGproposedGrid.txt'),'w')
         CFL = self.vascularNetwork.CFL
         for vesselT,data in logfileData.items():
             #number of deltaX
@@ -631,4 +631,3 @@ class FlowSolver(cSBO.StarfishBaseObject):
         del self.connections
         del self.boundarys
         del self.communicators
-

@@ -29,7 +29,13 @@ import UtilityLib.moduleStartUp as mStartUp
 
 import pydot
 from VncLib import xdot
-import gtk
+try:
+    import gtk
+except ImportError:
+    from gi import pygtkcompat
+    pygtkcompat.enable()
+    pygtkcompat.enable_gtk(version='3.0')
+    import gtk
 
 from VncLib.classGraph import Graph
 from VncLib.classGraph import MyDotWindow
@@ -328,7 +334,8 @@ def main():
         elif menuInput == "p":
             vascularNetwork.showVessels()
             vascularNetwork.showNetwork()
-            vascularNetwork.randomInputManager.printOutInfo()
+            if vascularNetwork.randomInputManager is not None:
+                vascularNetwork.randomInputManager.printOutInfo()
                         
         elif menuInput == "g":
             print(mainGraph.getGraph())
@@ -421,7 +428,7 @@ def main():
                         bcTypesAll = list(nxml.bcTagsClassReferences.keys())
                         bcTypes = []
                         for bcType in bcTypesAll: 
-                            if "_" is not bcType[0]:
+                            if "_" != bcType[0]:
                                 bcTypes.append(bcType)
                         bcTypes.sort()
                         # show all boundaryConditions in the bcTypes
