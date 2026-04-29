@@ -2,6 +2,12 @@ import sys,os
 cur = os.path.dirname( os.path.realpath( __file__ ) )
 sys.path.append(cur+'/../')
 
+# NOTE: 3D visualisation relies on legacy OpenGL. On Apple Silicon you may
+# need extra system libs; set STARFISH_SKIP_3D=1 to disable.
+if os.environ.get('STARFISH_SKIP_3D', '').lower() in ('1', 'true', 'yes', 'on'):
+    print("INFO: STARFISH_SKIP_3D enabled; exiting 3D visualisation.")
+    sys.exit(0)
+
 #sys.path.append(cur+'/../UtilityLib')
 
 import subprocess

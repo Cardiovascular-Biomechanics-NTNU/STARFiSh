@@ -6,6 +6,8 @@ PYTHON_VERSION="3.10" # Fixed for legacy compatibility
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "--- STARFiSh macOS Setup ---"
+echo "NOTE: Apple Silicon (arm64) is supported; 3D visualisation relies on legacy OpenGL and may require extra system libs."
+echo "      Set STARFISH_SKIP_3D=1 to disable 3D if it is unstable."
 
 # 1. Use Mamba if available, otherwise Conda
 if command -v mamba >/dev/null 2>&1; then
