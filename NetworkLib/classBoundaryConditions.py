@@ -12,6 +12,8 @@ sys.path.append(cur+'/../')
 
 import UtilityLib.classStarfishBaseObject as cSBO
 import UtilityLib.moduleFilePathHandler as mFPH
+from .netlistInterface import NetlistBoundaryInterface
+from .netlistManager import get_default_netlist_manager
 
 class BoundaryCondition(cSBO.StarfishBaseObject):
     """
@@ -1343,6 +1345,83 @@ class Resistance(BoundaryConditionType2):
         self.dQInOut = (R[:][1] * self.omegaNew)[::-1].copy()
 
         return np.dot(R, self.omegaNew), self.dQInOut
+
+
+class Netlist(BoundaryConditionType2):
+    """
+    Boundary profile - type 2
+
+    Netlist interface boundary condition. The first implementation supports a
+    constant-coefficient netlist law for testing:
+
+        P = Rtilde * Q + S
+
+    Later, Rtilde and S should come from the CRIMSON netlist adapter as
+    (dp_dq, Hop).
+    """
+
+    def __init__(self):
+        self.type = 2
+        self.vesselId = None
+        self.surfaceId = None
+        self.netlistFile = None
+        self.flowSign = 1.0
+        self.Rtilde = None
+        self.S = 0.0
+
+        self.returnFunction = None
+        self.omegaNew = np.empty((2))
+        self.dQInOut = np.empty((2))
+        self.interface = None
+        self.manager = get_default_netlist_manager()
+
+    def __call__(self, _domegaField_, duPrescribed, R, L, nmem, n, dt, P, Q, A, Z1, Z2):
+        return self.returnFunction(_domegaField_, R, nmem, n, dt, P, Q, A, Z1, Z2)
+
+    def setPosition(self, position):
+        BoundaryConditionType2.setPosition(self, position)
+        if self.interface is not None:
+            self.interface.position = position
+
+    def initialize(self, bcDict):
+        self.update(bcDict)
+        self._ensure_interface()
+
+    def _ensure_interface(self):
+        if self.surfaceId is None:
+            raise ValueError("Netlist boundary requires surfaceId.")
+        self.manager.register_boundary(
+            self.surfaceId,
+            vessel_id=self.vesselId,
+            position=self.position,
+            netlist_file=self.netlistFile,
+            flow_sign=self.flowSign,
+            rtilde=self.Rtilde,
+            s=self.S,
+        )
+        if self.interface is None:
+            self.interface = NetlistBoundaryInterface(
+                self.surfaceId,
+                self.position,
+                self.flowSign,
+                self.manager,
+            )
+        else:
+            self.interface.position = self.position
+            self.interface.flow_sign = float(self.flowSign)
+        return self.interface
+
+    def funcPos0(self, _domegaField, R, nmem, n, dt, P, Q, A, Z1, Z2):
+        """
+        Return function for position 0 at the start of the vessel.
+        """
+        return self._ensure_interface().solve(_domegaField, R, nmem, n, dt, P, Q, A, Z1, Z2)
+
+    def funcPos1(self, domegaField_, R, nmem, n, dt, P, Q, A, Z1, Z2):
+        """
+        Return function for position -1 at the end of the vessel.
+        """
+        return self._ensure_interface().solve(domegaField_, R, nmem, n, dt, P, Q, A, Z1, Z2)
 
 
 class Windkessel2DAE(generalPQ_BC):

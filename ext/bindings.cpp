@@ -1,5 +1,6 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>  // Essential for handling std::string
+#include <nanobind/stl/pair.h>
 #include "StarfishBridge.cpp"     // Ensure the path to your bridge class is correct
 
 namespace nb = nanobind;
@@ -9,5 +10,8 @@ namespace nb = nanobind;
 NB_MODULE(crimson_starfish_bridge, m) {
     nb::class_<StarfishBridge>(m, "CrimsonBridge")
         .def(nb::init<int, double, double>())
-        .def("load", &StarfishBridge::load);
+        .def("load", &StarfishBridge::load)
+        .def("compute_implicit_coefficients", &StarfishBridge::compute_implicit_coefficients)
+        .def("update_state", &StarfishBridge::update_state)
+        .def("finalize_timestep", &StarfishBridge::finalize_timestep);
 }

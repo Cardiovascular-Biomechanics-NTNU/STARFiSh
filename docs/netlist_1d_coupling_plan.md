@@ -7,14 +7,33 @@ The first user-facing boundary condition should be named simply:
 
 ```xml
 <_Netlist>
-  <Rtilde unit="Pa s m-3">133320000.0</Rtilde>
-  <S unit="Pa">0.0</S>
   <surfaceId>0</surfaceId>
   <netlistFile>netlist_surfaces.xml</netlistFile>
+  <flowSign>1</flowSign>
 </_Netlist>
 ```
 
-Internally, the first version can behave as a Robin pressure-flow condition:
+The real netlist circuit description is not parsed by STARFiSh. It remains a
+CRIMSON netlist input file and is handled by CRIMSON's own netlist XML reader.
+The STARFiSh XML only maps a 1D vessel boundary to a netlist surface and points
+to the netlist file.
+
+For early testing, `_Netlist` may also support a temporary constant-coefficient
+mode:
+
+```xml
+<_Netlist>
+  <surfaceId>0</surfaceId>
+  <Rtilde unit="Pa s m-3">133320000.0</Rtilde>
+  <S unit="Pa">0.0</S>
+  <flowSign>1</flowSign>
+</_Netlist>
+```
+
+This fake mode lets us verify the 1D characteristic coupling before calling the
+C++ netlist.
+
+Internally, the coupling law is the Robin pressure-flow condition:
 
 ```text
 P = Rtilde * Q + S
@@ -34,6 +53,366 @@ where:
 - `S` / `Hop` is the pressure shift from history, sources, capacitors, and
   other netlist state.
 
+## Current Implementation Map
+
+The coupling now has three layers:
+
+```text
+STARFiSh XML + Type 2 BC
+  -> Python interface/manager
+  -> CRIMSON C++ netlist bridge
+```
+
+The main rule is that STARFiSh owns the 1D solver and characteristic update,
+while CRIMSON owns the netlist circuit solve.
+
+### Files Added or Extended
+
+```text
+NetworkLib/classBoundaryConditions.py
+```
+
+Adds the STARFiSh Type 2 boundary condition:
+
+```python
+class Netlist(BoundaryConditionType2)
+```
+
+Responsibilities:
+
+- receives XML fields already parsed by STARFiSh:
+  `surfaceId`, `netlistFile`, `flowSign`, `Rtilde`, `S`
+- registers the boundary with `NetlistBoundaryManager`
+- creates `NetlistBoundaryInterface`
+- delegates each solver boundary call to the interface layer
+
+Important methods:
+
+```python
+Netlist.initialize()
+Netlist.setPosition(position)
+Netlist.funcPos0(...)
+Netlist.funcPos1(...)
+```
+
+`funcPos0` is the proximal/inlet-side handler and `funcPos1` is the
+distal/outlet-side handler. Both call the same interface object; the interface
+uses `position` to select the correct characteristic direction.
+
+```text
+NetworkLib/netlistInterface.py
+```
+
+Owns the 1D mathematical coupling.
+
+Important function:
+
+```python
+solve_robin_characteristic(
+    position,
+    omega_known,
+    R,
+    P,
+    Q,
+    dp_dq,
+    hop,
+    flow_sign=1.0)
+```
+
+This solves the unknown characteristic from:
+
+```text
+P_new = dp_dq * (flow_sign * Q_new) + hop
+```
+
+and:
+
+```text
+[dP, dQ]^T = R_char * omega
+```
+
+Important class:
+
+```python
+class NetlistBoundaryInterface
+```
+
+Responsibilities:
+
+- asks the manager for `(dp_dq, Hop)`
+- solves the unknown characteristic
+- computes `du = [dP, dQ]`
+- records final interface pressure/flow back into the manager
+
+Important method:
+
+```python
+NetlistBoundaryInterface.solve(...)
+```
+
+This is the main call path from STARFiSh into the netlist coupling.
+
+```text
+NetworkLib/netlistManager.py
+```
+
+Owns boundary registration and chooses where coefficients come from.
+
+Important class:
+
+```python
+class NetlistBoundaryManager
+```
+
+Responsibilities:
+
+- stores all registered netlist boundaries by `surfaceId`
+- supports fake constant mode for quick tests:
+
+  ```text
+  Rtilde != None -> return (Rtilde, S)
+  ```
+
+- supports real CRIMSON mode:
+
+  ```text
+  Rtilde == None -> call CrimsonNetlistAdapter
+  ```
+
+- records final `(P, Q)` after the 1D characteristic solve
+- forwards final state to CRIMSON in real mode
+- finalizes all loaded adapters once per timestep when called
+
+Important methods:
+
+```python
+register_boundary(...)
+compute_coefficients(...)
+record_boundary_state(...)
+finalize_timestep(...)
+```
+
+```text
+UtilityLib/crimsonNetlistAdapter.py
+```
+
+Python adapter around the compiled CRIMSON bridge.
+
+Important class:
+
+```python
+class CrimsonNetlistAdapter
+```
+
+Responsibilities:
+
+- imports the compiled module `crimson_starfish_bridge`
+- constructs `CrimsonBridge(hstep, alfi, delt)`
+- loads the CRIMSON netlist XML
+- calls CRIMSON for `(dp_dq, Hop)`
+- pushes final `(P, Q)` back to CRIMSON
+
+Important methods:
+
+```python
+load(dt=None)
+compute_implicit_coefficients(surface_id, timestep, time, dt, flow)
+update_state(surface_id, timestep, time, dt, pressure, flow)
+finalize_timestep(timestep)
+```
+
+Current practical note:
+
+CRIMSON's XML reader still assumes `netlist_surfaces.xml` can be opened from
+the current working directory. The adapter temporarily changes directory to the
+XML file directory during `load()` so local case folders work.
+
+```text
+ext/StarfishBridge.cpp
+```
+
+C++ bridge between Python and CRIMSON's `NetlistCircuit`.
+
+Important class:
+
+```cpp
+class StarfishBridge
+```
+
+Responsibilities:
+
+- initializes PETSc if needed
+- owns one `NetlistCircuit`
+- owns scalar pressure/flow values whose addresses are passed into CRIMSON
+- loads the CRIMSON netlist file
+- returns CRIMSON's affine pressure-flow law:
+
+  ```text
+  (dp_dq, Hop)
+  ```
+
+Important methods:
+
+```cpp
+void load(const std::string& xml_path);
+std::pair<double, double> compute_implicit_coefficients(
+    int timestep,
+    double time,
+    double dt,
+    double flow);
+void update_state(
+    int timestep,
+    double time,
+    double dt,
+    double pressure,
+    double flow);
+void finalize_timestep(int timestep);
+```
+
+Current call sequence inside `load()`:
+
+```cpp
+setNetlistXmlFileName(xml_path)
+setPressureAndFlowPointers(&pressure, &flow)
+createCircuitDescription()
+closeAllDiodes()
+detectWhetherClosedDiodesStopAllFlowAt3DInterface()
+initialiseCircuit()
+```
+
+```text
+ext/bindings.cpp
+```
+
+Nanobind module definition.
+
+Python-visible class:
+
+```python
+crimson_starfish_bridge.CrimsonBridge
+```
+
+Bound methods:
+
+```python
+load(...)
+compute_implicit_coefficients(...)
+update_state(...)
+finalize_timestep(...)
+```
+
+```text
+ext/verify_bridge.py
+```
+
+Small verification script. It loads:
+
+```text
+examples/baseline_netlist_from_xml/netlist_surfaces.xml
+```
+
+and checks that the bridge returns coefficients from CRIMSON.
+
+```text
+UtilityLib/networkXml043.py
+UtilityLib/constants.py
+```
+
+XML registration layer.
+
+Responsibilities:
+
+- make `Netlist` and `_Netlist` visible in STARFiSh `input.xml`
+- define fields:
+
+  ```text
+  surfaceId
+  netlistFile
+  flowSign
+  Rtilde
+  S
+  ```
+
+`Rtilde` and `S` are allowed to be `None` so the same XML structure can run in
+real CRIMSON mode.
+
+```text
+NetworkLib/classVascularNetwork.py
+```
+
+Currently has a small compatibility update so fake constant `_Netlist` cases
+can participate in resistance estimation when `Rtilde` is provided.
+
+Open cleanup:
+
+Real adapter mode with `Rtilde=None` still cannot provide an initial resistance
+estimate to STARFiSh during initialization. The solver can run, but STARFiSh
+prints its fallback resistance message. A later cleanup should let the manager
+query CRIMSON once during initialization or provide an optional initialization
+resistance.
+
+## Data Flow Schematic
+
+```text
+STARFiSh input.xml
+  |
+  |  vesselId, boundary position, surfaceId, netlistFile,
+  |  flowSign, optional Rtilde/S
+  v
+classBoundaryConditions.Netlist
+  |
+  |  P, Q, known omega, R_char, n, dt
+  v
+NetworkLib.netlistInterface.NetlistBoundaryInterface
+  |
+  |  asks for coefficients:
+  |  surfaceId, timestep, time, dt, pressure, signed flow
+  v
+NetworkLib.netlistManager.NetlistBoundaryManager
+  |        |
+  |        | fake mode: Rtilde/S from input.xml
+  |        |
+  |        | real mode: call Python adapter
+  v
+UtilityLib.crimsonNetlistAdapter.CrimsonNetlistAdapter
+  |
+  |  import nanobind module and call bridge
+  v
+ext.crimson_starfish_bridge.CrimsonBridge
+  |
+  |  C++ StarfishBridge -> CRIMSON NetlistCircuit
+  |
+  |  CRIMSON parses netlist_surfaces.xml and solves circuit
+  v
+dp_dq, Hop
+  |
+  v
+NetlistBoundaryInterface solves unknown characteristic
+  |
+  |  du = [dP, dQ]
+  v
+P^{n+1}, Q^{n+1}
+  |
+NetlistBoundaryManager records final interface state
+  |
+  |  real mode: adapter.update_state(...)
+  v
+CRIMSON updates netlist state from final interface P/Q
+```
+
+The important separation is:
+
+```text
+STARFiSh XML:
+  maps the 1D boundary to a netlist surface.
+
+CRIMSON netlist XML:
+  defines the actual circuit.
+
+Python interface:
+  translates between 1D characteristic variables and CRIMSON's P/Q law.
+```
+
 ## Milestone 1: XML Visibility
 
 Goal: prove the solver can read a `Netlist` boundary condition from `input.xml`.
@@ -44,8 +423,11 @@ Implementation steps:
 2. Register XML fields:
 
    ```python
-   ["Rtilde", "S", "surfaceId", "netlistFile"]
+   ["surfaceId", "netlistFile", "flowSign", "Rtilde", "S"]
    ```
+
+   `Rtilde` and `S` are optional testing fields. In the real coupled mode, the
+   CRIMSON netlist wrapper provides them as `(dp_dq, Hop)`.
 
 3. Add a skeletal Type 2 class in `NetworkLib/classBoundaryConditions.py`:
 
@@ -53,10 +435,11 @@ Implementation steps:
    class Netlist(BoundaryConditionType2):
        def __init__(self):
            self.type = 2
-           self.Rtilde = 1.0
-           self.S = 0.0
            self.surfaceId = None
            self.netlistFile = None
+           self.flowSign = 1
+           self.Rtilde = None
+           self.S = None
    ```
 
 4. Load a case and verify that the object is created with the expected parsed
@@ -136,7 +519,84 @@ P = Rtilde * Q + S
 
 Even for a single tube, add a manager abstraction before calling C++ directly.
 
-Conceptual API:
+Recommended file split:
+
+```text
+NetworkLib/classBoundaryConditions.py
+  Netlist
+    Thin STARFiSh Type 2 caller.
+
+NetworkLib/netlistInterface.py
+  NetlistBoundaryInterface
+    Owns the 1D characteristic solve and the Robin law.
+
+NetworkLib/netlistManager.py
+  NetlistBoundaryManager
+    Owns surface registration, fake-vs-C++ adapter selection,
+    coefficient calls, and timestep finalization.
+
+ext / compiled binding
+  Owns the actual C++ CRIMSON netlist wrapper.
+```
+
+The `Netlist` class in `classBoundaryConditions.py` should remain small:
+
+```python
+class Netlist(BoundaryConditionType2):
+    def __call__(self, omega_known, du_prescribed, R, L, nmem, n, dt, P, Q, A, Z1, Z2):
+        return self.interface.solve(
+            omega_known=omega_known,
+            R=R,
+            nmem=nmem,
+            n=n,
+            dt=dt,
+            P=P,
+            Q=Q,
+            A=A,
+            Z1=Z1,
+            Z2=Z2,
+        )
+```
+
+The interface layer owns the characteristic algebra:
+
+```python
+class NetlistBoundaryInterface:
+    def solve(self, omega_known, R, nmem, n, dt, P, Q, A, Z1, Z2):
+        Rtilde, S = self.manager.compute_coefficients(
+            surface_id=self.surface_id,
+            timestep=n,
+            time=n * dt,
+            dt=dt,
+            pressure=P,
+            flow=self.flow_sign * Q,
+        )
+
+        omega_vector = self.solve_unknown_characteristic(
+            position=self.position,
+            omega_known=omega_known,
+            R=R,
+            P=P,
+            Q=Q,
+            Rtilde=Rtilde,
+            S=S,
+        )
+
+        du = np.dot(R, omega_vector)
+        P_new = P + du[0]
+        Q_new = Q + du[1]
+        self.manager.record_boundary_state(
+            self.surface_id,
+            n,
+            n * dt,
+            dt,
+            P_new,
+            self.flow_sign * Q_new,
+        )
+        return du, self.compute_dq_in_out(omega_vector, R)
+```
+
+Manager-level conceptual API:
 
 ```python
 class NetlistBoundaryManager:
@@ -149,7 +609,7 @@ class NetlistBoundaryManager:
     def compute_coefficients(self, surface_id, timestep, time, dt, pressure, flow):
         return Rtilde, S
 
-    def update_state(self, surface_id, timestep, time, dt, pressure, flow):
+    def record_boundary_state(self, surface_id, timestep, time, dt, pressure, flow):
         ...
 
     def finalize_timestep(self, timestep):
@@ -190,6 +650,181 @@ Rtilde, S
 
 The STARFiSh boundary condition should not care whether these values came from
 XML constants, a fake Python object, or the CRIMSON netlist solver.
+
+In real mode, `netlist_file` is a CRIMSON netlist XML file such as:
+
+```text
+netlist_surfaces.xml
+```
+
+STARFiSh should not parse the circuit topology, components, prescribed nodal
+pressures, component flows, diode states, or capacitor histories. That logic
+belongs inside CRIMSON's netlist code.
+
+## CRIMSON Netlist File Ownership
+
+The relevant CRIMSON source directory is:
+
+```text
+/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/src/
+```
+
+The netlist XML reader is currently built around the CRIMSON convention that the
+input file is named:
+
+```text
+netlist_surfaces.xml
+```
+
+Until that singleton/path behavior is refactored, the wrapper should either:
+
+1. stage/copy the user-provided `<netlistFile>` to the expected filename in the
+   run directory, or
+2. modify the CRIMSON netlist reader/wrapper so it accepts an explicit file
+   path.
+
+The STARFiSh `input.xml` should only contain:
+
+```text
+surfaceId
+netlistFile
+flowSign
+```
+
+The CRIMSON netlist file contains the actual circuit.
+
+## CRIMSON Files to Wrap
+
+Core netlist solver files:
+
+```text
+NetlistCircuit.hxx
+NetlistCircuit.cxx
+CircuitData.hxx
+CircuitData.cxx
+CircuitComponent.hxx
+CircuitComponent.cxx
+CircuitPressureNode.hxx
+CircuitPressureNode.cxx
+NetlistXmlReader.hxx
+NetlistXmlReader.cxx
+datatypesInCpp.hxx
+fileReaders.hxx
+fileReaders.cxx
+fileWriters.hxx
+fileWriters.cxx
+indexShifters.hxx
+customCRIMSONContainers.hxx
+debuggingToolsForCpp.hxx
+```
+
+CRIMSON boundary-condition wrapper layer:
+
+```text
+NetlistBoundaryCondition.hxx
+NetlistBoundaryCondition.cxx
+AbstractBoundaryCondition.hxx
+AbstractBoundaryCondition.cxx
+BoundaryConditionFactory.hxx
+BoundaryConditionFactory.cxx
+BoundaryConditionManager.hxx
+BoundaryConditionManager.cxx
+FortranBoundaryDataPointerManager.hxx
+FortranBoundaryDataPointerManager.cxx
+```
+
+Optional advanced modes:
+
+```text
+NetlistBoundaryCircuitWhenDownstreamCircuitsExist.hxx
+NetlistBoundaryCircuitWhenDownstreamCircuitsExist.cxx
+NetlistClosedLoopDownstreamCircuit.hxx
+NetlistClosedLoopDownstreamCircuit.cxx
+ClosedLoopBoundaryConditionSubsection.hxx
+ClosedLoopBoundaryConditionSubsection.cxx
+Netlist3DDomainReplacement.hxx
+Netlist3DDomainReplacement.cxx
+NetlistZeroDDomainCircuit.hxx
+NetlistZeroDDomainCircuit.cxx
+```
+
+For the first 1D coupling, prefer using the CRIMSON boundary-condition wrapper
+layer through `NetlistBoundaryCondition` or `BoundaryConditionFactory`, because
+that is closest to how CRIMSON already computes `(dp_dq, Hop)` for the higher
+dimensional solver.
+
+## C++ Calling Shape
+
+Minimal direct `NetlistCircuit` sequence:
+
+```cpp
+NetlistCircuit circuit(
+    hstep,
+    surfaceIndex,
+    netlistIndex,
+    restarted,
+    alfi,
+    delt,
+    startingTimestepIndex);
+
+circuit.setPointersToBoundaryPressuresAndFlows(&pressure, &flow, 1);
+circuit.createCircuitDescription();
+circuit.closeAllDiodes();
+circuit.detectWhetherClosedDiodesStopAllFlowAt3DInterface();
+circuit.initialiseCircuit();
+
+circuit.initialiseAtStartOfTimestep();
+auto coeffs = circuit.computeImplicitCoefficients(
+    timestepNumber,
+    timeAtNplus1,
+    alfi_delt);
+circuit.updateLPN(timestepNumber);
+circuit.finalizeLPNAtEndOfTimestep();
+```
+
+Preferred boundary-condition wrapper sequence:
+
+```cpp
+NetlistBoundaryCondition bc(
+    surfaceIndex,
+    hstep,
+    delt,
+    alfi,
+    startingTimestepIndex,
+    maxsurf,
+    nstep,
+    downstreamSubcircuits);
+
+bc.setPressureAndFlowPointers(&pressure, &flow);
+bc.initialiseModel();
+
+bc.initialiseAtStartOfTimestep();
+bc.computeImplicitCoeff_solve(timestepNumber);
+double Rtilde = bc.getdp_dq();
+double S = bc.getHop();
+bc.updateLPN(timestepNumber);
+bc.finaliseAtEndOfTimestep();
+```
+
+The Python adapter should hide this C++ sequence behind a small API:
+
+```python
+class CrimsonNetlistAdapter:
+    def load(self, netlist_file, surface_ids, dt, alfi, hstep=1):
+        ...
+
+    def begin_timestep(self, timestep, time, dt):
+        ...
+
+    def compute_implicit_coefficients(self, surface_id, timestep, time, dt, flow):
+        return dp_dq, hop
+
+    def set_final_state(self, surface_id, pressure, flow):
+        ...
+
+    def finalize_timestep(self, timestep):
+        ...
+```
 
 ## Existing C++ Starting Point
 

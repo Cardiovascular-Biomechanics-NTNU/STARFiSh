@@ -16,12 +16,15 @@ try:
     print("--- [Python] Bridge object created ---")
 
     # Trigger the XML loading logic
-    # Use the absolute path to your netlist file
-    xml_path = "/home/sadid/temp/optimized/netlist_surfaces.xml"
+    # Use the repo-local single-resistor netlist fixture.
+    xml_path = "/home/sadid/starfish/examples/baseline_netlist_from_xml/netlist_surfaces.xml"
     
     print("--- [Python] Calling bridge.load('{}') ---".format(xml_path))
     bridge.load(xml_path)
     print("--- [Python] Load call finished ---")
+
+    coeffs = bridge.compute_implicit_coefficients(1, 0.01, 0.01, 1.0e-5)
+    print("--- [Python] Coefficients: dp_dq={}, Hop={} ---".format(coeffs[0], coeffs[1]))
 
 except Exception as e:
     print("FAILED: {}".format(e))

@@ -1229,6 +1229,11 @@ class VascularNetwork(cSBO.StarfishBaseObject):
                     # # add resistance to the value
                     try: boundaryResistance = boundaryResistance + bc.Rtotal
                     except Exception:
+                        # netlist constant-coefficient test mode
+                        try:
+                            if bc.Rtilde is not None:
+                                boundaryResistance = boundaryResistance + bc.Rtilde
+                        except Exception: logger.debug("Old except: pass clause #netlist in VascularNetwork.calculateNetworkResistance")
                         # # winkessel 2 elements and single resistance
                         try:
                             if bc.Rc == 'VesselImpedance':
@@ -1309,6 +1314,11 @@ class VascularNetwork(cSBO.StarfishBaseObject):
                     # # add resistance to the value
                     try: boundaryResistance = boundaryResistance + bc.Rtotal
                     except Exception:
+                        # netlist constant-coefficient test mode
+                        try:
+                            if bc.Rtilde is not None:
+                                boundaryResistance = boundaryResistance + bc.Rtilde
+                        except Exception: logger.debug("Old except: pass clause #netlist in VascularNetwork.calculateInitialValuesLinearSystem")
                         # # winkessel 2 elements and single resistance
                         try:
                             if bc.Rc == 'VesselImpedance':
