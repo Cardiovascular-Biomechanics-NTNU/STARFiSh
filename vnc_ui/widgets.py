@@ -1,4 +1,4 @@
-from PySide6 import QtWidgets, QtCore
+from vnc_ui.qt_compat import QtWidgets, QtCore
 
 class FixedPopupComboBox(QtWidgets.QComboBox):
     def __init__(self, max_items=5, parent=None):

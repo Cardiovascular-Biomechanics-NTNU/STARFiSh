@@ -1,5 +1,7 @@
 import math
-from PySide6 import QtWidgets, QtCore
+import os
+import subprocess
+from vnc_ui.qt_compat import QtWidgets, QtCore
 from UtilityLib.constants import newestNetworkXml as nxml
 from UtilityLib.constants import variablesDict
 from NetworkLib.classBoundaryConditions import *
@@ -13,11 +15,11 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.scene.selectionChanged.connect(self.on_selection_changed)
         self.current_item = None
 
-        self.layout = QtWidgets.QVBoxLayout()
-        self.layout.setContentsMargins(8, 8, 8, 8)
-        self.layout.setSpacing(10)
+        panel_layout = QtWidgets.QVBoxLayout()
+        panel_layout.setContentsMargins(8, 8, 8, 8)
+        panel_layout.setSpacing(10)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self.setLayout(self.layout)
+        self.setLayout(panel_layout)
 
         # 1. Tools Group
         tools_group = QtWidgets.QGroupBox("Network Builder Tools")
@@ -43,7 +45,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         tools_layout.addWidget(self.btn_save_project)
         tools_layout.addWidget(self.btn_load_project)
         tools_group.setLayout(tools_layout)
-        self.layout.addWidget(tools_group)
+        panel_layout.addWidget(tools_group)
 
         # 2. Vessel Geometry + Topology
         vessel_group = QtWidgets.QGroupBox("Vessel Geometry")
@@ -110,7 +112,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         vessel_layout.addRow("Radius Distal:", self.radius_dist_edit)
 
         vessel_group.setLayout(vessel_layout)
-        self.layout.addWidget(vessel_group)
+        panel_layout.addWidget(vessel_group)
 
         compliance_group = QtWidgets.QGroupBox("Vessel Compliance")
         compliance_layout = QtWidgets.QVBoxLayout()
@@ -137,7 +139,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.compliance_form_widget.setLayout(self.compliance_form_layout)
         compliance_layout.addWidget(self.compliance_form_widget)
         compliance_group.setLayout(compliance_layout)
-        self.layout.addWidget(compliance_group)
+        panel_layout.addWidget(compliance_group)
 
         fluid_group = QtWidgets.QGroupBox("Vessel Fluid")
         fluid_layout = QtWidgets.QFormLayout()
@@ -162,7 +164,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         fluid_layout.addRow("rho:", self.fluid_rho_edit)
         fluid_layout.addRow("gamma:", self.fluid_gamma_edit)
         fluid_group.setLayout(fluid_layout)
-        self.layout.addWidget(fluid_group)
+        panel_layout.addWidget(fluid_group)
         # 3. Node Browser (on the right)
         browser_group = QtWidgets.QGroupBox("Node Browser")
         browser_layout = QtWidgets.QVBoxLayout()
@@ -172,7 +174,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.node_list.itemClicked.connect(self.on_node_list_clicked)
         browser_layout.addWidget(self.node_list)
         browser_group.setLayout(browser_layout)
-        self.layout.addWidget(browser_group)
+        panel_layout.addWidget(browser_group)
 
         # 4. Boundary Condition Manager (bottom block)
         bc_group = QtWidgets.QGroupBox("Boundary Condition Manager")
@@ -216,21 +218,21 @@ class PropertiesPanel(QtWidgets.QWidget):
         button_row = QtWidgets.QHBoxLayout()
         self.btn_bc_add = QtWidgets.QPushButton("Add / Update BC")
         self.btn_bc_delete = QtWidgets.QPushButton("Delete BC")
-        self.btn_bc_show = QtWidgets.QPushButton("Show BCs")
-        for button in (self.btn_bc_add, self.btn_bc_delete, self.btn_bc_show):
+        self.btn_bc_open_netlist = QtWidgets.QPushButton("Open Netlist Editor")
+        for button in (self.btn_bc_add, self.btn_bc_delete, self.btn_bc_open_netlist):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             button.setMinimumHeight(32)
         self.btn_bc_add.clicked.connect(self.add_or_update_boundary_condition)
         self.btn_bc_delete.clicked.connect(self.delete_boundary_condition)
-        self.btn_bc_show.clicked.connect(self.show_boundary_conditions)
+        self.btn_bc_open_netlist.clicked.connect(self.open_netlist_editor)
         button_row.addWidget(self.btn_bc_add)
         button_row.addWidget(self.btn_bc_delete)
-        button_row.addWidget(self.btn_bc_show)
+        button_row.addWidget(self.btn_bc_open_netlist)
         bc_layout.addLayout(button_row)
 
         bc_group.setLayout(bc_layout)
-        self.layout.addWidget(bc_group)
-        self.layout.addStretch(1)
+        panel_layout.addWidget(bc_group)
+        panel_layout.addStretch(1)
         self.set_enabled_fields(False)
         # (Save/Load project buttons will be connected by the main editor)
         self.bc_field_edits = {}
@@ -790,6 +792,29 @@ class PropertiesPanel(QtWidgets.QWidget):
                 else:
                     lines.append(f'  {field_name}: {getattr(bc, field_name, None)}')
         QtWidgets.QMessageBox.information(self, 'Boundary conditions', '\n'.join(lines))
+
+    def open_netlist_editor(self):
+        editor_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                '..',
+                'NetlistEditor',
+                'build-qt6-linux',
+                'bin',
+                'CRIMSONBCT',
+            )
+        )
+        if not os.path.exists(editor_path):
+            QtWidgets.QMessageBox.warning(
+                self,
+                'Netlist Editor Not Found',
+                f'Expected at: {editor_path}',
+            )
+            return
+        try:
+            subprocess.Popen([editor_path])
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, 'Failed to Launch', str(exc))
 
     # Node Browser handlers
     def refresh_node_list(self):

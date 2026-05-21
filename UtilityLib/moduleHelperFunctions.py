@@ -1,5 +1,10 @@
-import psutil, os
+import os
 import subprocess
+
+try:
+    import psutil
+except Exception:
+    psutil = None
 
 def memoryUsagePsutil():
     '''
@@ -7,6 +12,12 @@ def memoryUsagePsutil():
     
     Returns: memory currently used in MB
     '''
+    if psutil is None:
+        try:
+            import resource
+            return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+        except Exception:
+            return 0.0
     process = psutil.Process(os.getpid())
     return process.memory_info()[0] / float(2 ** 20)
 

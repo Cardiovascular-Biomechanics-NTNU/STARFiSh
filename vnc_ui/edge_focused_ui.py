@@ -1,12 +1,13 @@
 import os
 import sys
-from PySide6 import QtWidgets, QtCore, QtGui
 
 # Ensure repository root is on sys.path so sibling packages like UtilityLib import
 cur = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.abspath(os.path.join(cur, '..'))
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
+
+from vnc_ui.qt_compat import QtWidgets, QtCore, QtGui
 
 from vnc_ui.editor import VascularEditor
 

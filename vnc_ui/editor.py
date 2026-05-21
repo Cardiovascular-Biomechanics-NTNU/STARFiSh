@@ -2,18 +2,16 @@ import math
 import os
 import subprocess
 import sys
-from PySide6 import QtWidgets, QtCore, QtGui
-from UtilityLib import moduleXML as mXML
+from vnc_ui.qt_compat import QtWidgets, QtCore, QtGui
 from UtilityLib.constants import newestNetworkXml as nxml
-import NetworkLib.classVascularNetwork as cVascNw
 from vnc_ui.scene import VascularScene
 from vnc_ui.scene_items import VesselEdge, JunctionNode
 from vnc_ui.panels import PropertiesPanel
 
-class VascularEditor(QtWidgets.QMainWindow):
-    def __init__(self):
+class VascularEditorWidget(QtWidgets.QWidget):
+    def __init__(self, enable_visualization_tab=True):
         super().__init__()
-        self.setWindowTitle('CRIMSON STARFISH - Vascular Network Editor')
+        self._enable_visualization_tab = bool(enable_visualization_tab)
 
         self.scene = VascularScene()
         self.view = QtWidgets.QGraphicsView(self.scene)
@@ -74,33 +72,37 @@ class VascularEditor(QtWidgets.QMainWindow):
         model_layout.addWidget(splitter)
         self.tabs.addTab(model_tab, "Model Parameters & Builder")
 
-        visualization_tab = QtWidgets.QWidget()
-        visualization_layout = QtWidgets.QVBoxLayout(visualization_tab)
-        visualization_layout.setContentsMargins(12, 12, 12, 12)
-        visualization_layout.setSpacing(12)
+        if self._enable_visualization_tab:
+            visualization_tab = QtWidgets.QWidget()
+            visualization_layout = QtWidgets.QVBoxLayout(visualization_tab)
+            visualization_layout.setContentsMargins(12, 12, 12, 12)
+            visualization_layout.setSpacing(12)
 
-        visualization_title = QtWidgets.QLabel("2D Visualization")
-        visualization_title.setStyleSheet("font-size: 18px; font-weight: bold;")
+            visualization_title = QtWidgets.QLabel("2D Visualization")
+            visualization_title.setStyleSheet("font-size: 18px; font-weight: bold;")
 
-        visualization_note = QtWidgets.QLabel(
-            "Launches the GTK-based 2D visualization in a separate window. "
-            "This keeps the Qt editor responsive while the plot UI runs."
-        )
-        visualization_note.setWordWrap(True)
+            visualization_note = QtWidgets.QLabel(
+                "Launches the GTK-based 2D visualization in a separate window. "
+                "This keeps the Qt editor responsive while the plot UI runs."
+            )
+            visualization_note.setWordWrap(True)
 
-        self.btn_open_visualization = QtWidgets.QPushButton("Open 2D Visualization")
-        self.btn_open_visualization.clicked.connect(self.launch_visualization)
-        self.btn_open_visualization.setFixedWidth(220)
+            self.btn_open_visualization = QtWidgets.QPushButton("Open 2D Visualization")
+            self.btn_open_visualization.clicked.connect(self.launch_visualization)
+            self.btn_open_visualization.setFixedWidth(220)
 
-        visualization_layout.addWidget(visualization_title)
-        visualization_layout.addWidget(visualization_note)
-        visualization_layout.addWidget(self.btn_open_visualization)
-        visualization_layout.addStretch(1)
+            visualization_layout.addWidget(visualization_title)
+            visualization_layout.addWidget(visualization_note)
+            visualization_layout.addWidget(self.btn_open_visualization)
+            visualization_layout.addStretch(1)
 
-        self.tabs.addTab(visualization_tab, "Visualization")
+            self.tabs.addTab(visualization_tab, "Visualization")
+        else:
+            self.btn_open_visualization = None
 
-        # Set the tabs as the central widget.
-        self.setCentralWidget(self.tabs)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.tabs)
 
         self.node_count = 0
         self.edge_count = 0
@@ -210,6 +212,8 @@ class VascularEditor(QtWidgets.QMainWindow):
 
     # --- Network import/export (full STARFiSh XML) ---
     def import_network_xml(self):
+        from UtilityLib import moduleXML as mXML
+
         fname, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import Network XML", "", "XML Files (*.xml)")
         if not fname:
             return
@@ -350,6 +354,9 @@ class VascularEditor(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.information(self, 'Imported', f'Imported network from {fname}')
 
     def export_network_xml(self):
+        from UtilityLib import moduleXML as mXML
+        import NetworkLib.classVascularNetwork as cVascNw
+
         # export full vascularNetwork XML from current scene
         fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export Network XML", "network_export.xml", "XML Files (*.xml)")
         if not fname:
@@ -472,3 +479,11 @@ class VascularEditor(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, 'Exported', f'Exported network XML to {fname}')
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to write network XML: {e}')
+
+
+class VascularEditor(QtWidgets.QMainWindow):
+    def __init__(self, enable_visualization_tab=True):
+        super().__init__()
+        self.setWindowTitle('CRIMSON STARFISH - Vascular Network Editor')
+        self.editor_widget = VascularEditorWidget(enable_visualization_tab=enable_visualization_tab)
+        self.setCentralWidget(self.editor_widget)

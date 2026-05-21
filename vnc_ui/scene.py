@@ -1,4 +1,4 @@
-from PySide6 import QtWidgets, QtCore
+from vnc_ui.qt_compat import QtWidgets, QtCore
 from vnc_ui.scene_items import JunctionNode
 
 # Scale: 1 physical mm = PIXELS_PER_MM pixels on screen

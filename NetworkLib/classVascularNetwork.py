@@ -11,12 +11,18 @@ from . import classVenousPool as classVenousPool
 
 import UtilityLib.moduleFilePathHandler as mFPH
 
-from VascularPolynomialChaosLib.classRandomInputManager import RandomInputManager
+try:
+    from VascularPolynomialChaosLib.classRandomInputManager import RandomInputManager
+except Exception:
+    RandomInputManager = None
 import numpy as np
 import math
 from scipy import interpolate
 import pprint
-import h5py
+try:
+    import h5py
+except Exception:
+    h5py = None
 from .classBoundaryConditions import *
 
 from UtilityLib import classRuntimeMemoryManager

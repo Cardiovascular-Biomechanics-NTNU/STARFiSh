@@ -1,5 +1,5 @@
 import math
-from PySide6 import QtWidgets, QtCore, QtGui
+from vnc_ui.qt_compat import QtWidgets, QtCore, QtGui
 
 class VesselEdge(QtWidgets.QGraphicsLineItem):
     """
