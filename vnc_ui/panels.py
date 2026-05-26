@@ -5,7 +5,12 @@ from vnc_ui.qt_compat import QtWidgets, QtCore
 from UtilityLib.constants import newestNetworkXml as nxml
 from UtilityLib.constants import variablesDict
 from NetworkLib.classBoundaryConditions import *
-from vnc_ui.widgets import FixedPopupComboBox
+from vnc_ui.widgets import (
+    FixedPopupComboBox,
+    NoWheelComboBox,
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+)
 from vnc_ui.scene_items import VesselEdge, JunctionNode
 
 class PropertiesPanel(QtWidgets.QWidget):
@@ -21,29 +26,46 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.setLayout(panel_layout)
 
-        # 1. Tools Group
-        tools_group = QtWidgets.QGroupBox("Network Builder Tools")
-        tools_layout = QtWidgets.QVBoxLayout()
-        tools_layout.setSpacing(8)
-
-        self.btn_add_root = QtWidgets.QPushButton("Add New Root Node")
-        self.btn_add_branch = QtWidgets.QPushButton("Add Branch to Selected")
+        self.btn_add_root = QtWidgets.QPushButton("+   Add Root Node")
+        self.btn_add_branch = QtWidgets.QPushButton("⎇   Add Branch")
         self.btn_delete = QtWidgets.QPushButton("Delete Selected")
-        self.btn_save_project = QtWidgets.QPushButton("Save Project")
-        self.btn_load_project = QtWidgets.QPushButton("Load Project")
+        self.btn_save_project = QtWidgets.QPushButton("Save")
+        self.btn_load_project = QtWidgets.QPushButton("Load")
+        self.btn_add_root.setObjectName("btn_add_root")
+        self.btn_add_branch.setObjectName("btn_add_branch")
+        self.btn_delete.setObjectName("btn_delete")
+        self.btn_save_project.setObjectName("btn_save_project")
+        self.btn_load_project.setObjectName("btn_load_project")
 
         for button in (self.btn_add_root, self.btn_add_branch, self.btn_delete, self.btn_save_project, self.btn_load_project):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            button.setMinimumHeight(34)
+            button.setMinimumHeight(42)
+
+        self.btn_save_project.setIcon(self._standard_icon("SP_DialogSaveButton"))
+        self.btn_load_project.setIcon(self._standard_icon("SP_DirOpenIcon"))
+        self.btn_delete.setIcon(self._standard_icon("SP_TrashIcon", "SP_DialogDiscardButton"))
+        for button in (self.btn_delete, self.btn_save_project, self.btn_load_project):
+            button.setIconSize(QtCore.QSize(18, 18))
 
         self.btn_add_root.setToolTip("Creates an unattached starting point.")
         self.btn_add_branch.setToolTip("Select a node, then click this to instantly sprout a new vessel and child node.")
 
+        project_actions = QtWidgets.QHBoxLayout()
+        project_actions.setSpacing(8)
+        project_actions.addWidget(self.btn_save_project)
+        project_actions.addWidget(self.btn_load_project)
+        panel_layout.addLayout(project_actions)
+
+        # 1. Tools Group
+        tools_group = QtWidgets.QGroupBox("Network Builder Tools")
+        tools_layout = QtWidgets.QVBoxLayout()
+        tools_layout.setSpacing(8)
+        branch_delete_row = QtWidgets.QHBoxLayout()
+        branch_delete_row.setSpacing(8)
         tools_layout.addWidget(self.btn_add_root)
-        tools_layout.addWidget(self.btn_add_branch)
-        tools_layout.addWidget(self.btn_delete)
-        tools_layout.addWidget(self.btn_save_project)
-        tools_layout.addWidget(self.btn_load_project)
+        branch_delete_row.addWidget(self.btn_add_branch)
+        branch_delete_row.addWidget(self.btn_delete)
+        tools_layout.addLayout(branch_delete_row)
         tools_group.setLayout(tools_layout)
         panel_layout.addWidget(tools_group)
 
@@ -60,7 +82,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.name_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.name_edit.textChanged.connect(self.update_name)
 
-        self.type_combo = QtWidgets.QComboBox()
+        self.type_combo = NoWheelComboBox()
         geometry_types = variablesDict.get('geometryType', {}).get('strCases', [])
         if not geometry_types:
             geometry_types = ['uniform', 'cone']
@@ -68,7 +90,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.type_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.type_combo.currentTextChanged.connect(self.update_type)
 
-        self.grid_points_edit = QtWidgets.QSpinBox()
+        self.grid_points_edit = NoWheelSpinBox()
         self.grid_points_edit.setRange(2, 10000)
         self.grid_points_edit.valueChanged.connect(self.update_grid_points)
 
@@ -80,21 +102,21 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.angle_y_edit.setPlaceholderText("rad")
         self.angle_y_edit.editingFinished.connect(self.update_angle_y)
 
-        self.length_m_edit = QtWidgets.QDoubleSpinBox()
+        self.length_m_edit = NoWheelDoubleSpinBox()
         self.length_m_edit.setRange(0.0, 10000.0)
         self.length_m_edit.setDecimals(6)
         self.length_m_edit.setSpecialValueText("N/A")
         self.length_m_edit.setSuffix(" m")
         self.length_m_edit.valueChanged.connect(self.update_length_m)
 
-        self.radius_prox_edit = QtWidgets.QDoubleSpinBox()
+        self.radius_prox_edit = NoWheelDoubleSpinBox()
         self.radius_prox_edit.setRange(0.0, 1000.0)
         self.radius_prox_edit.setDecimals(6)
         self.radius_prox_edit.setSpecialValueText("N/A")
         self.radius_prox_edit.setSuffix(" m")
         self.radius_prox_edit.valueChanged.connect(self.update_radius_prox)
 
-        self.radius_dist_edit = QtWidgets.QDoubleSpinBox()
+        self.radius_dist_edit = NoWheelDoubleSpinBox()
         self.radius_dist_edit.setRange(0.0, 1000.0)
         self.radius_dist_edit.setDecimals(6)
         self.radius_dist_edit.setSpecialValueText("N/A")
@@ -124,7 +146,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         compliance_header.setHorizontalSpacing(10)
         compliance_header.setVerticalSpacing(8)
 
-        self.compliance_type_combo = QtWidgets.QComboBox()
+        self.compliance_type_combo = NoWheelComboBox()
         self.compliance_type_combo.addItems(sorted(list(nxml.vesselComplianceElements.keys())))
         self.compliance_type_combo.currentTextChanged.connect(self.on_compliance_type_changed)
         compliance_header.addRow("Compliance Type:", self.compliance_type_combo)
@@ -148,7 +170,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         fluid_layout.setHorizontalSpacing(10)
         fluid_layout.setVerticalSpacing(8)
 
-        self.apply_global_fluid_combo = QtWidgets.QComboBox()
+        self.apply_global_fluid_combo = NoWheelComboBox()
         self.apply_global_fluid_combo.addItems(["True", "False"])
         self.apply_global_fluid_combo.currentTextChanged.connect(self.update_apply_global_fluid)
 
@@ -165,18 +187,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         fluid_layout.addRow("gamma:", self.fluid_gamma_edit)
         fluid_group.setLayout(fluid_layout)
         panel_layout.addWidget(fluid_group)
-        # 3. Node Browser (on the right)
-        browser_group = QtWidgets.QGroupBox("Node Browser")
-        browser_layout = QtWidgets.QVBoxLayout()
-        browser_layout.setSpacing(6)
-        self.node_list = QtWidgets.QListWidget()
-        self.node_list.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self.node_list.itemClicked.connect(self.on_node_list_clicked)
-        browser_layout.addWidget(self.node_list)
-        browser_group.setLayout(browser_layout)
-        panel_layout.addWidget(browser_group)
-
-        # 4. Boundary Condition Manager (bottom block)
+        # 3. Boundary Condition Manager (bottom block)
         bc_group = QtWidgets.QGroupBox("Boundary Condition Manager")
         bc_layout = QtWidgets.QVBoxLayout()
         bc_layout.setSpacing(8)
@@ -198,7 +209,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.bc_type.setView(list_view)
         self.bc_type.activated[int].connect(self.on_bc_type_changed)
 
-        self.bc_position = QtWidgets.QComboBox()
+        self.bc_position = NoWheelComboBox()
         self.bc_position.addItems(["Start (0)", "End (-1)"])
         self.bc_position.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
@@ -216,24 +227,32 @@ class PropertiesPanel(QtWidgets.QWidget):
         bc_layout.addWidget(self.bc_form_widget)
 
         button_row = QtWidgets.QHBoxLayout()
-        self.btn_bc_add = QtWidgets.QPushButton("Add / Update BC")
+        button_row.setSpacing(8)
+        self.btn_bc_add = QtWidgets.QPushButton("+   Add / Update BC")
         self.btn_bc_delete = QtWidgets.QPushButton("Delete BC")
-        self.btn_bc_open_netlist = QtWidgets.QPushButton("Open Netlist Editor")
+        self.btn_bc_open_netlist = QtWidgets.QPushButton("⎇   Open Netlist Editor")
+        self.btn_bc_add.setObjectName("btn_bc_add")
+        self.btn_bc_delete.setObjectName("btn_bc_delete")
+        self.btn_bc_open_netlist.setObjectName("btn_bc_open_netlist")
         for button in (self.btn_bc_add, self.btn_bc_delete, self.btn_bc_open_netlist):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            button.setMinimumHeight(32)
+            button.setMinimumHeight(42)
         self.btn_bc_add.clicked.connect(self.add_or_update_boundary_condition)
         self.btn_bc_delete.clicked.connect(self.delete_boundary_condition)
         self.btn_bc_open_netlist.clicked.connect(self.open_netlist_editor)
+        self.btn_bc_delete.setIcon(self._standard_icon("SP_TrashIcon", "SP_DialogDiscardButton"))
+        self.btn_bc_delete.setIconSize(QtCore.QSize(18, 18))
         button_row.addWidget(self.btn_bc_add)
         button_row.addWidget(self.btn_bc_delete)
-        button_row.addWidget(self.btn_bc_open_netlist)
         bc_layout.addLayout(button_row)
+        bc_layout.addWidget(self.btn_bc_open_netlist)
 
-        bc_group.setLayout(bc_layout)
-        panel_layout.addWidget(bc_group)
+        self.bc_group = bc_group
+        self.bc_group.setLayout(bc_layout)
+        panel_layout.addWidget(self.bc_group)
         panel_layout.addStretch(1)
         self.set_enabled_fields(False)
+        self.set_boundary_condition_fields_enabled(False)
         # (Save/Load project buttons will be connected by the main editor)
         self.bc_field_edits = {}
         self.compliance_field_edits = {}
@@ -242,6 +261,14 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.on_bc_type_changed(self.bc_type.currentIndex())
         self.on_compliance_type_changed(self.compliance_type_combo.currentText())
         self._apply_responsive_styles(self.width())
+
+    def _standard_icon(self, *names):
+        standard_pixmap = getattr(QtWidgets.QStyle, "StandardPixmap", QtWidgets.QStyle)
+        for name in names:
+            pixmap = getattr(standard_pixmap, name, None)
+            if pixmap is not None:
+                return self.style().standardIcon(pixmap)
+        return self.style().standardIcon(getattr(standard_pixmap, "SP_FileIcon"))
 
     def set_enabled_fields(self, enabled, is_edge=False):
         self.name_edit.setEnabled(enabled)
@@ -259,6 +286,15 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.fluid_my_edit.setEnabled(is_edge)
         self.fluid_rho_edit.setEnabled(is_edge)
         self.fluid_gamma_edit.setEnabled(is_edge)
+
+    def set_boundary_condition_fields_enabled(self, enabled):
+        self.bc_group.setEnabled(enabled)
+        self.bc_type.setEnabled(enabled)
+        self.bc_position.setEnabled(enabled)
+        self.bc_form_widget.setEnabled(enabled)
+        self.btn_bc_add.setEnabled(enabled)
+        self.btn_bc_delete.setEnabled(enabled)
+        self.btn_bc_open_netlist.setEnabled(enabled)
 
     def _apply_responsive_styles(self, width):
         compact = width < 420
@@ -279,11 +315,66 @@ class PropertiesPanel(QtWidgets.QWidget):
                 padding: 6px; outline: 0; min-width: 320px;
             }}
             QComboBox QAbstractItemView::item {{ padding: 6px 10px; min-height: 24px; }}
-            QPushButton {{ background-color: #3a7ca5; color: white; border: none; padding: {button_padding}px; border-radius: 4px; font-weight: bold; margin-bottom: 5px; font-size: {button_font}px; }}
-            QPushButton:hover {{ background-color: #4a8cb5; }}
-            QPushButton:pressed {{ background-color: #2a6c95; }}
-            QPushButton#btn_delete {{ background-color: #a53a3a; }}
-            QPushButton#btn_delete:hover {{ background-color: #b54a4a; }}
+            QPushButton {{
+                background-color: #202326; color: #f5f7fa; border: 1px solid #343b43;
+                border-radius: 2px; font-weight: 600; margin-bottom: 5px;
+                font-family: "DejaVu Sans", "Segoe UI Symbol", "Noto Sans Symbols", sans-serif;
+                font-size: {button_font}px; padding: {button_padding}px 14px;
+                text-align: left;
+            }}
+            QPushButton:hover {{ background-color: #29313a; border-color: #4d5966; }}
+            QPushButton:pressed {{ background-color: #171a1d; }}
+            QPushButton:disabled {{ background-color: #252525; color: #777777; border-color: #3a3a3a; }}
+            QPushButton#btn_add_root, QPushButton#btn_add_branch, QPushButton#btn_bc_add {{
+                background-color: #263f58; border-color: #4b78a3;
+            }}
+            QPushButton#btn_add_root:hover, QPushButton#btn_add_branch:hover, QPushButton#btn_bc_add:hover {{
+                background-color: #30506f; border-color: #5d8dbb;
+            }}
+            QPushButton#btn_save_project, QPushButton#btn_load_project {{
+                background-color: #202326; border-color: #343b43;
+            }}
+            QPushButton#btn_save_project:hover, QPushButton#btn_load_project:hover {{
+                background-color: #29313a; border-color: #4d5966;
+            }}
+            QPushButton#btn_delete, QPushButton#btn_bc_delete {{
+                background-color: #3b2222; border-color: #8b3c3c;
+            }}
+            QPushButton#btn_delete:hover, QPushButton#btn_bc_delete:hover {{
+                background-color: #4a2929; border-color: #a34a4a;
+            }}
+            QPushButton#btn_bc_open_netlist {{
+                background-color: #202326; border-color: #343b43;
+            }}
+            QPushButton#btn_bc_open_netlist:hover {{ background-color: #29313a; border-color: #4d5966; }}
+            QScrollBar:vertical {{
+                background: #252525; width: 14px; margin: 0;
+                border-left: 1px solid #3a3a3a;
+            }}
+            QScrollBar:horizontal {{
+                background: #252525; height: 14px; margin: 0;
+                border-top: 1px solid #3a3a3a;
+            }}
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+                background: #b8bec7; border-radius: 6px;
+            }}
+            QScrollBar::handle:vertical {{
+                min-height: 32px;
+            }}
+            QScrollBar::handle:horizontal {{
+                min-width: 32px;
+            }}
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+                background: #d1d5db;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px; height: 0px; background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
             QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0px; }}
         """)
 
@@ -296,6 +387,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         if not selected or len(selected) > 1:
             self.current_item = None
             self.set_enabled_fields(False)
+            self.set_boundary_condition_fields_enabled(False)
             self.name_edit.clear()
             self.left_daughter_edit.clear()
             self.right_daughter_edit.clear()
@@ -333,6 +425,7 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         if isinstance(item, VesselEdge):
             self.set_enabled_fields(True, is_edge=True)
+            self.set_boundary_condition_fields_enabled(False)
             self.type_combo.setCurrentText(item.geometry_type if hasattr(item, 'geometry_type') else item.vessel_type)
             self._suspend_geometry_sync = True
             self.length_m_edit.setValue(float(item.length_mm) / 1000.0)
@@ -358,6 +451,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             self.refresh_boundary_conditions_view()
         elif isinstance(item, JunctionNode):
             self.set_enabled_fields(True, is_edge=False)
+            self.set_boundary_condition_fields_enabled(True)
             self.type_combo.setCurrentIndex(-1)
             self.left_daughter_edit.clear()
             self.right_daughter_edit.clear()
@@ -372,8 +466,6 @@ class PropertiesPanel(QtWidgets.QWidget):
             self.fluid_my_edit.clear()
             self.fluid_rho_edit.clear()
             self.fluid_gamma_edit.clear()
-            # update node browser selection highlight
-            self.update_node_list_selection(item)
             self.refresh_boundary_conditions_view()
 
         self.name_edit.blockSignals(False)
@@ -561,7 +653,7 @@ class PropertiesPanel(QtWidgets.QWidget):
     def _create_compliance_widget(self, field_name):
         type_info = variablesDict.get(field_name, {}).get('type', '')
         if 'bool' in type_info:
-            widget = QtWidgets.QComboBox()
+            widget = NoWheelComboBox()
             widget.addItems(["False", "True"])
             return widget
         widget = QtWidgets.QLineEdit()
@@ -655,6 +747,16 @@ class PropertiesPanel(QtWidgets.QWidget):
             self.bc_form_layout.addRow(f"{field_name}:", editor)
             self.bc_field_edits[field_name] = editor
 
+    def _reset_boundary_condition_editor(self):
+        self.bc_type.blockSignals(True)
+        self.bc_position.blockSignals(True)
+        self.bc_type.setCurrentIndex(-1)
+        self.bc_position.setCurrentIndex(0)
+        self.bc_type.blockSignals(False)
+        self.bc_position.blockSignals(False)
+        self._clear_layout(self.bc_form_layout)
+        self.bc_field_edits = {}
+
     def _populate_bc_editor_from_instance(self, bc_instance):
         if bc_instance is None:
             return
@@ -688,7 +790,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         node = self._selected_boundary_node()
         self._current_boundary_node = node
         if node is None:
-            self._build_bc_editor(self.bc_type.currentText())
+            self._reset_boundary_condition_editor()
             return
 
         conditions = self._ensure_boundary_conditions_list(node)
@@ -706,7 +808,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._populate_bc_editor_from_instance(conditions[0])
             return
 
-        self._build_bc_editor(self.bc_type.currentText())
+        self._reset_boundary_condition_editor()
 
     def on_bc_type_changed(self, index):
         txt = self.bc_type.itemText(index)
@@ -799,7 +901,7 @@ class PropertiesPanel(QtWidgets.QWidget):
                 os.path.dirname(__file__),
                 '..',
                 'NetlistEditor',
-                'build-qt6-linux',
+                'build-qt6-linux-starfish',
                 'bin',
                 'CRIMSONBCT',
             )
@@ -815,33 +917,6 @@ class PropertiesPanel(QtWidgets.QWidget):
             subprocess.Popen([editor_path])
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, 'Failed to Launch', str(exc))
-
-    # Node Browser handlers
-    def refresh_node_list(self):
-        self.node_list.clear()
-        nodes = [it for it in self.scene.items() if isinstance(it, JunctionNode)]
-        for n in nodes:
-            w = QtWidgets.QListWidgetItem(n.name)
-            w.setData(QtCore.Qt.UserRole, id(n))
-            self.node_list.addItem(w)
-
-    def on_node_list_clicked(self, item):
-        # find object by id and select it in scene
-        obj_id = item.data(QtCore.Qt.UserRole)
-        for it in self.scene.items():
-            if id(it) == obj_id:
-                self.scene.clearSelection()
-                it.setSelected(True)
-                self.scene.views()[0].centerOn(it)
-                break
-
-    def update_node_list_selection(self, node):
-        # ensure node is visible and selected in list
-        for i in range(self.node_list.count()):
-            it = self.node_list.item(i)
-            if it.data(QtCore.Qt.UserRole) == id(node):
-                self.node_list.setCurrentItem(it)
-                return
 
     def save_project(self):
         # wrapper to save project XML using the full network exporter
@@ -938,8 +1013,7 @@ class PropertiesPanel(QtWidgets.QWidget):
                         pass
                     node.boundary_condition = {'type': 'ReflectionCoefficient', 'Rt': rt}
 
-        # Refresh visuals and node list
+        # Refresh visuals
         for sv in scene_vessels:
             sv.update_visuals()
-        self.refresh_node_list()
         QtWidgets.QMessageBox.information(self, 'Loaded', f'Loaded project from {fname}')

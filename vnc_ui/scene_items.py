@@ -50,7 +50,7 @@ class VesselEdge(QtWidgets.QGraphicsLineItem):
 
         pen = QtGui.QPen(self.base_color, thickness, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
         if self.isSelected():
-            pen.setColor(QtCore.Qt.yellow)
+            pen.setColor(QtGui.QColor(0, 150, 200))
             pen.setWidthF(thickness + 3)
 
         self.setPen(pen)
@@ -79,7 +79,7 @@ class JunctionNode(QtWidgets.QGraphicsEllipseItem):
         self.outgoing_edges = []
         self.setZValue(1)
 
-        self.setBrush(QtGui.QBrush(QtGui.QColor(80, 180, 250)))
+        self.setBrush(QtGui.QBrush(QtGui.QColor(0, 0, 0)))
         self.setPen(QtGui.QPen(QtCore.Qt.white, 2))
 
         # Make the node draggable and selectable
@@ -105,7 +105,7 @@ class JunctionNode(QtWidgets.QGraphicsEllipseItem):
                 edge.update_visuals()
         elif change == QtWidgets.QGraphicsItem.ItemSelectedHasChanged:
             if value:
-                self.setPen(QtGui.QPen(QtCore.Qt.yellow, 3))
+                self.setPen(QtGui.QPen(QtGui.QColor(0, 150, 200), 3))
             else:
                 self.setPen(QtGui.QPen(QtCore.Qt.white, 2))
         return super().itemChange(change, value)

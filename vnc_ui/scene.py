@@ -1,10 +1,28 @@
-from vnc_ui.qt_compat import QtWidgets, QtCore
+from vnc_ui.qt_compat import QtWidgets, QtCore, QtGui
 from vnc_ui.scene_items import JunctionNode
 
 # Scale: 1 physical mm = PIXELS_PER_MM pixels on screen
 PIXELS_PER_MM = 15.0
 
 class VascularScene(QtWidgets.QGraphicsScene):
+    def drawBackground(self, painter, rect):
+        painter.fillRect(rect, QtGui.QColor("#d9dddc"))
+
+        grid_size = 24
+        left = int(rect.left()) - (int(rect.left()) % grid_size)
+        top = int(rect.top()) - (int(rect.top()) % grid_size)
+        right = int(rect.right())
+        bottom = int(rect.bottom())
+
+        painter.setPen(QtGui.QPen(QtGui.QColor("#000000"), 1))
+        x = left
+        while x <= right:
+            y = top
+            while y <= bottom:
+                painter.drawPoint(x, y)
+                y += grid_size
+            x += grid_size
+
     def enforce_fixed_lengths(self):
         """
         Traverses the graph from the root(s) and forces the distance between

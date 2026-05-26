@@ -32,7 +32,55 @@ def main():
     dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
     dark_palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
     app.setPalette(dark_palette)
-    app.setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }")
+    app.setStyleSheet("""
+        QToolTip {
+            color: #ffffff;
+            background-color: #2a82da;
+            border: 1px solid white;
+        }
+        QScrollBar:vertical {
+            background: #2f2f2f;
+            width: 14px;
+            margin: 0;
+            border-left: 1px solid #404040;
+        }
+
+        QScrollBar:horizontal {
+            background: #2f2f2f;
+            height: 14px;
+            margin: 0;
+            border-top: 1px solid #404040;
+        }
+        QScrollBar::handle:vertical,
+        QScrollBar::handle:horizontal {
+            background: #b8bec7;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:vertical {
+            min-height: 32px;
+        }
+        QScrollBar::handle:horizontal {
+            min-width: 32px;
+        }
+        QScrollBar::handle:vertical:hover,
+        QScrollBar::handle:horizontal:hover {
+            background: #d1d5db;
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical,
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {
+            width: 0px;
+            height: 0px;
+            background: transparent;
+        }
+        QScrollBar::add-page:vertical,
+        QScrollBar::sub-page:vertical,
+        QScrollBar::add-page:horizontal,
+        QScrollBar::sub-page:horizontal {
+            background: transparent;
+        }
+    """)
 
     editor = VascularEditor()
     editor.resize(1200, 800)

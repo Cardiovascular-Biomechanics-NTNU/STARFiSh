@@ -1,6 +1,23 @@
 from vnc_ui.qt_compat import QtWidgets, QtCore
 
-class FixedPopupComboBox(QtWidgets.QComboBox):
+class NoWheelMixin:
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NoWheelComboBox(NoWheelMixin, QtWidgets.QComboBox):
+    pass
+
+
+class NoWheelSpinBox(NoWheelMixin, QtWidgets.QSpinBox):
+    pass
+
+
+class NoWheelDoubleSpinBox(NoWheelMixin, QtWidgets.QDoubleSpinBox):
+    pass
+
+
+class FixedPopupComboBox(NoWheelComboBox):
     def __init__(self, max_items=5, parent=None):
         super().__init__(parent)
         self._max_popup_items = max_items

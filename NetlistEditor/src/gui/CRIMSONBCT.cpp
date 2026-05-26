@@ -40,6 +40,7 @@
 #include "gui/qsapecngwindow.h"
 
 #include <QApplication>
+#include <QFont>
 #include <QPalette>
 #include <QSplashScreen>
 #include <QPixmap>
@@ -54,35 +55,46 @@ void applyDarkTheme(QApplication& app)
 {
   app.setStyle(QStyleFactory::create("Fusion"));
 
+  QFont font("DejaVu Sans");
+  font.setStyleHint(QFont::SansSerif);
+  font.setPointSize(10);
+  app.setFont(font);
+
   QPalette palette;
-  palette.setColor(QPalette::Window, QColor(32, 34, 37));
-  palette.setColor(QPalette::WindowText, QColor(232, 234, 237));
-  palette.setColor(QPalette::Base, QColor(24, 26, 29));
-  palette.setColor(QPalette::AlternateBase, QColor(39, 42, 46));
-  palette.setColor(QPalette::ToolTipBase, QColor(232, 234, 237));
-  palette.setColor(QPalette::ToolTipText, QColor(24, 26, 29));
-  palette.setColor(QPalette::Text, QColor(232, 234, 237));
-  palette.setColor(QPalette::Button, QColor(56, 60, 66));
-  palette.setColor(QPalette::ButtonText, QColor(232, 234, 237));
+  palette.setColor(QPalette::Window, QColor(43, 43, 43));
+  palette.setColor(QPalette::WindowText, QColor(255, 255, 255));
+  palette.setColor(QPalette::Base, QColor(25, 25, 25));
+  palette.setColor(QPalette::AlternateBase, QColor(43, 43, 43));
+  palette.setColor(QPalette::ToolTipBase, QColor(255, 255, 255));
+  palette.setColor(QPalette::ToolTipText, QColor(18, 20, 23));
+  palette.setColor(QPalette::Text, QColor(255, 255, 255));
+  palette.setColor(QPalette::Button, QColor(43, 43, 43));
+  palette.setColor(QPalette::ButtonText, QColor(255, 255, 255));
   palette.setColor(QPalette::BrightText, QColor(255, 255, 255));
-  palette.setColor(QPalette::Link, QColor(86, 156, 214));
-  palette.setColor(QPalette::Highlight, QColor(74, 136, 204));
+  palette.setColor(QPalette::Link, QColor(99, 179, 237));
+  palette.setColor(QPalette::Highlight, QColor(63, 131, 248));
   palette.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
-  palette.setColor(QPalette::Disabled, QPalette::Text, QColor(156, 163, 175));
-  palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(156, 163, 175));
-  palette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(156, 163, 175));
+  palette.setColor(QPalette::Disabled, QPalette::Text, QColor(203, 213, 225));
+  palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(203, 213, 225));
+  palette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(203, 213, 225));
 
   app.setPalette(palette);
   app.setStyleSheet(
+    "QWidget {"
+    "  color: #ffffff;"
+    "  font-family: \"DejaVu Sans\", \"Segoe UI\", \"Arial\", sans-serif;"
+    "  font-size: 10pt;"
+    "}"
     "QMenuBar, QMenu, QToolBar, QStatusBar {"
-    "  background: #202225;"
-    "  color: #f1f3f4;"
+    "  background: #2b2b2b;"
+    "  color: #ffffff;"
     "}"
     "QMenuBar::item:selected, QMenu::item:selected {"
-    "  background: #3f4854;"
+    "  background: #3f83f8;"
+    "  color: #ffffff;"
     "}"
     "QToolBar {"
-    "  border-bottom: 1px solid #4b5563;"
+    "  border-bottom: 1px solid #64748b;"
     "  spacing: 4px;"
     "}"
     "QToolButton {"
@@ -97,17 +109,21 @@ void applyDarkTheme(QApplication& app)
     "QToolButton:pressed, QToolButton:checked {"
     "  background: #4078b8;"
     "}"
+    "QLabel {"
+    "  color: #ffffff;"
+    "}"
     "QTreeView, QTreeWidget, QTableView, QListView {"
-    "  background: #202328;"
-    "  alternate-background-color: #2b2f35;"
-    "  color: #f1f3f4;"
-    "  gridline-color: #4b5563;"
+    "  background: #191919;"
+    "  alternate-background-color: #2b2b2b;"
+    "  color: #ffffff;"
+    "  font-size: 10pt;"
+    "  gridline-color: #64748b;"
     "}"
     "QTreeView::item, QTreeWidget::item {"
-    "  color: #f1f3f4;"
+    "  color: #ffffff;"
     "}"
     "QTreeView::item:selected, QTreeWidget::item:selected {"
-    "  background: #4a88cc;"
+    "  background: #3f83f8;"
     "  color: #ffffff;"
     "}"
     "QHeaderView::section {"
@@ -117,13 +133,13 @@ void applyDarkTheme(QApplication& app)
     "  padding: 2px 4px;"
     "}"
     "QTabBar::tab {"
-    "  background: #252930;"
-    "  color: #f1f3f4;"
-    "  border: 1px solid #4b5563;"
-    "  padding: 4px 10px;"
+    "  background: #2b2b2b;"
+    "  color: #ffffff;"
+    "  border: 1px solid #64748b;"
+    "  padding: 5px 12px;"
     "}"
     "QTabBar::tab:selected {"
-    "  background: #313741;"
+    "  background: #2b2b2b;"
     "}"
   );
 }

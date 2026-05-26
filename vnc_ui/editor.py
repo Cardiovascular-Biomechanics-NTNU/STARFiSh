@@ -16,7 +16,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.scene = VascularScene()
         self.view = QtWidgets.QGraphicsView(self.scene)
         self.view.setRenderHint(QtGui.QPainter.Antialiasing)
-        self.scene.setBackgroundBrush(QtGui.QColor(35, 35, 35))
+        self.scene.setSceneRect(-800, -800, 1600, 1600)
         self.view.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
 
         # Use a QSplitter for the model builder layout and a scroll area for the right panel
@@ -42,24 +42,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # connect project import/export to editor-level handlers
         self.prop_panel.btn_save_project.clicked.connect(self.export_network_xml)
         self.prop_panel.btn_load_project.clicked.connect(self.import_network_xml)
-
-        self.prop_panel.setStyleSheet("""
-            QWidget { background-color: #2b2b2b; color: #eeeeee; font-family: sans-serif; font-size: 14px;}
-            QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 5px; margin-top: 15px; padding-top: 15px;}
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; color: #80c0ff; }
-            QLineEdit, QDoubleSpinBox, QComboBox {
-                background-color: #3b3b3b; color: white; padding: 6px; border: 1px solid #555; border-radius: 3px; min-width: 120px;
-            }
-            QPushButton { background-color: #3a7ca5; color: white; border: none; padding: 10px; border-radius: 4px; font-weight: bold; margin-bottom: 5px;}
-            QPushButton:hover { background-color: #4a8cb5; }
-            QPushButton:pressed { background-color: #2a6c95; }
-            QPushButton#btn_delete { background-color: #a53a3a; }
-            QPushButton#btn_delete:hover { background-color: #b54a4a; }
-            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 0px; }
-        """)
-
-        # Apply specific ID styling
-        self.prop_panel.btn_delete.setObjectName("btn_delete")
 
         # Tabs for model builder and visualization
         self.tabs = QtWidgets.QTabWidget()
@@ -107,8 +89,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.node_count = 0
         self.edge_count = 0
 
-        self.setup_sample_network()
-
     def launch_visualization(self):
         script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualization_2d.py"))
         try:
@@ -122,7 +102,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
         center_point = self.view.mapToScene(self.view.viewport().rect().center())
         node.setPos(center_point)
         self.scene.addItem(node)
-        self.prop_panel.refresh_node_list()
 
     def add_branch(self):
         """The easiest way to build trees. Spawns a child connected to the selected node."""
@@ -155,7 +134,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # Select the new edge so user can immediately edit its properties
         parent.setSelected(False)
         edge.setSelected(True)
-        self.prop_panel.refresh_node_list()
 
     def delete_selected(self):
         for item in self.scene.selectedItems():
@@ -169,7 +147,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
                     edge.cleanup()
                     self.scene.removeItem(edge)
                 self.scene.removeItem(item)
-            self.prop_panel.refresh_node_list()
 
     def setup_sample_network(self):
         self.node_count = 4
@@ -208,7 +185,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.scene.enforce_fixed_lengths()
 
         self.scene.setSceneRect(-800, -800, 1600, 1600)
-        self.prop_panel.refresh_node_list()
 
     # --- Network import/export (full STARFiSh XML) ---
     def import_network_xml(self):
@@ -350,7 +326,6 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         # finalize
         self.scene.enforce_fixed_lengths()
-        self.prop_panel.refresh_node_list()
         QtWidgets.QMessageBox.information(self, 'Imported', f'Imported network from {fname}')
 
     def export_network_xml(self):
@@ -360,7 +335,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # export full vascularNetwork XML from current scene
         fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export Network XML", "network_export.xml", "XML Files (*.xml)")
         if not fname:
-            return
+            return False
 
         # traverse scene to assign IDs and topology
         edges = [it for it in self.scene.items() if isinstance(it, VesselEdge)]
@@ -477,8 +452,10 @@ class VascularEditorWidget(QtWidgets.QWidget):
         try:
             mXML.writeNetworkToXML(vascularNetwork, dataNumber='xxx', networkXmlFile=fname)
             QtWidgets.QMessageBox.information(self, 'Exported', f'Exported network XML to {fname}')
+            return True
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to write network XML: {e}')
+            return False
 
 
 class VascularEditor(QtWidgets.QMainWindow):
@@ -487,3 +464,30 @@ class VascularEditor(QtWidgets.QMainWindow):
         self.setWindowTitle('CRIMSON STARFISH - Vascular Network Editor')
         self.editor_widget = VascularEditorWidget(enable_visualization_tab=enable_visualization_tab)
         self.setCentralWidget(self.editor_widget)
+
+    def closeEvent(self, event):
+        buttons = getattr(QtWidgets.QMessageBox, "StandardButton", QtWidgets.QMessageBox)
+        save = getattr(buttons, "Save")
+        discard = getattr(buttons, "Discard")
+        cancel = getattr(buttons, "Cancel")
+
+        choice = QtWidgets.QMessageBox.question(
+            self,
+            "Close editor?",
+            "Do you want to save your project before closing?",
+            save | discard | cancel,
+            save,
+        )
+
+        if choice == save:
+            if self.editor_widget.export_network_xml():
+                event.accept()
+            else:
+                event.ignore()
+            return
+
+        if choice == discard:
+            event.accept()
+            return
+
+        event.ignore()
