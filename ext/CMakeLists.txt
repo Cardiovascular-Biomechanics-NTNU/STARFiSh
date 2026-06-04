@@ -12,8 +12,8 @@ execute_process(
 find_package(nanobind CONFIG REQUIRED)
 
 # 2. Define CRIMSON and Dependency Paths
-set(CRIMSON_ROOT "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver")
-set(CRIMSON_DEPS "/home/sadid/crimson/deps/installs")
+set(CRIMSON_ROOT "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver") # <-- Change this to your CRIMSON root directory
+set(CRIMSON_DEPS "/home/sadid/crimson/deps/installs") # <-- Change this to where you installed CRIMSON dependencies (petsc, boost, openblas, etc.)
 # This is where your .a files live
 set(CRIMSON_LIB_DIR "${CRIMSON_ROOT}/lib")
 

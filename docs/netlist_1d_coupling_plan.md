@@ -109,7 +109,7 @@ NetworkLib/netlistInterface.py
 
 Owns the 1D mathematical coupling.
 
-Important function:
+Important functions:
 
 ```python
 solve_robin_characteristic(
@@ -121,6 +121,13 @@ solve_robin_characteristic(
     dp_dq,
     hop,
     flow_sign=1.0)
+
+solve_prescribed_flow_characteristic(
+    position,
+    omega_known,
+    R,
+    Q,
+    prescribed_flow=0.0)
 ```
 
 This solves the unknown characteristic from:
@@ -200,8 +207,12 @@ Responsibilities:
 Important methods:
 
 ```python
+set_output_directory(...)
 register_boundary(...)
 compute_coefficients(...)
+compute_update_coefficients(...)
+flow_permitted(...)
+start_timestep(...)
 record_boundary_state(...)
 finalize_timestep(...)
 ```
@@ -229,8 +240,14 @@ Responsibilities:
 Important methods:
 
 ```python
+set_output_directory(...)
+register_surfaces(...)
 load(dt=None)
 compute_implicit_coefficients(surface_id, timestep, time, dt, flow)
+compute_update_coefficients(surface_id, timestep, time, dt, flow)
+flow_permitted(surface_id, dt=None)
+boundary_condition_type_changed(surface_id, dt=None)
+start_timestep(timestep, time, dt)
 update_state(surface_id, timestep, time, dt, pressure, flow)
 finalize_timestep(timestep)
 ```
@@ -269,17 +286,31 @@ Important methods:
 
 ```cpp
 void load(const std::string& xml_path);
+void load(const std::string& xml_path, const std::vector<int>& surface_ids);
+void register_surfaces(const std::vector<int>& surface_ids);
+void set_output_directory(const std::string& output_directory);
 std::pair<double, double> compute_implicit_coefficients(
+    int surface_id,
     int timestep,
     double time,
     double dt,
     double flow);
+std::pair<double, double> compute_update_coefficients(
+    int surface_id,
+    int timestep,
+    double time,
+    double dt,
+    double flow);
+bool flow_permitted(int surface_id);
+bool boundary_condition_type_changed(int surface_id);
 void update_state(
+    int surface_id,
     int timestep,
     double time,
     double dt,
     double pressure,
     double flow);
+void start_timestep(int timestep, double time, double dt);
 void finalize_timestep(int timestep);
 ```
 
@@ -310,7 +341,13 @@ Bound methods:
 
 ```python
 load(...)
+register_surfaces(...)
+set_output_directory(...)
+start_timestep(...)
 compute_implicit_coefficients(...)
+compute_update_coefficients(...)
+flow_permitted(...)
+boundary_condition_type_changed(...)
 update_state(...)
 finalize_timestep(...)
 ```
@@ -607,24 +644,34 @@ The interface layer owns the characteristic algebra:
 ```python
 class NetlistBoundaryInterface:
     def solve(self, omega_known, R, nmem, n, dt, P, Q, A, Z1, Z2):
-        Rtilde, S = self.manager.compute_coefficients(
-            surface_id=self.surface_id,
-            timestep=n,
-            time=n * dt,
-            dt=dt,
-            pressure=P,
-            flow=self.flow_sign * Q,
-        )
+        time = (n + 1) * dt
+        if not self.manager.flow_permitted(self.surface_id, n, time, dt):
+            omega_vector = solve_prescribed_flow_characteristic(
+                self.position,
+                omega_known,
+                R,
+                Q,
+                prescribed_flow=0.0,
+            )
+        else:
+            Rtilde, S = self.manager.compute_coefficients(
+                surface_id=self.surface_id,
+                timestep=n,
+                time=time,
+                dt=dt,
+                pressure=P,
+                flow=self.flow_sign * Q,
+            )
 
-        omega_vector = self.solve_unknown_characteristic(
-            position=self.position,
-            omega_known=omega_known,
-            R=R,
-            P=P,
-            Q=Q,
-            Rtilde=Rtilde,
-            S=S,
-        )
+            omega_vector = self.solve_unknown_characteristic(
+                position=self.position,
+                omega_known=omega_known,
+                R=R,
+                P=P,
+                Q=Q,
+                Rtilde=Rtilde,
+                S=S,
+            )
 
         du = np.dot(R, omega_vector)
         P_new = P + du[0]
@@ -632,7 +679,7 @@ class NetlistBoundaryInterface:
         self.manager.record_boundary_state(
             self.surface_id,
             n,
-            n * dt,
+            time,
             dt,
             P_new,
             self.flow_sign * Q_new,
@@ -650,8 +697,20 @@ class NetlistBoundaryManager:
     def register_boundary(self, surface_id, vessel_id, position):
         ...
 
+    def set_output_directory(self, output_directory):
+        ...
+
+    def start_timestep(self, timestep, time, dt):
+        ...
+
     def compute_coefficients(self, surface_id, timestep, time, dt, pressure, flow):
         return Rtilde, S
+
+    def compute_update_coefficients(self, surface_id, timestep, time, dt, flow):
+        return Rtilde, S
+
+    def flow_permitted(self, surface_id, timestep, time, dt):
+        return True
 
     def record_boundary_state(self, surface_id, timestep, time, dt, pressure, flow):
         ...
@@ -724,8 +783,13 @@ the only Python file that should know about the compiled binding details.
 SolverLib/class1DflowSolver.py
 ```
 
-This owns timestep-level finalization. After every numerical object has run for
-a timestep, it calls:
+This owns timestep-level initialization and finalization. Before boundaries are evaluated, it calls:
+
+```python
+get_default_netlist_manager().start_timestep(n, (n + 1) * self.dt, self.dt)
+```
+
+After every numerical object has run for a timestep, it calls:
 
 ```python
 get_default_netlist_manager().finalize_timestep(n)
