@@ -12,7 +12,15 @@ class CrimsonNetlistAdapter(object):
     ext/StarfishBridge.cpp through the nanobind module.
     """
 
-    def __init__(self, netlist_xml, hstep=1, alfi=1.0, delt=None, surface_ids=None):
+    def __init__(
+        self,
+        netlist_xml,
+        hstep=1,
+        alfi=1.0,
+        delt=None,
+        surface_ids=None,
+        output_directory=None,
+    ):
         """
         Store the one CRIMSON netlist file and bridge time-integration settings.
 
@@ -24,7 +32,40 @@ class CrimsonNetlistAdapter(object):
         self.alfi = alfi
         self.delt = delt
         self.surface_ids = sorted(set(int(surface_id) for surface_id in (surface_ids or [])))
+        self.output_directory = (
+            os.path.abspath(output_directory) if output_directory is not None else None
+        )
         self._bridge = None
+
+    def set_output_directory(self, output_directory):
+        """
+        Set the directory used for CRIMSON netlist pressure/flow/volume files.
+
+        The compiled bridge writes CRIMSON's normal relative output file names
+        from this directory, keeping them beside the current STARFiSh HDF5/XML
+        outputs.
+        """
+        self.output_directory = (
+            os.path.abspath(output_directory) if output_directory is not None else None
+        )
+        if self._bridge is not None and self.output_directory is not None:
+            self._bridge.set_output_directory(self.output_directory)
+
+    def register_surfaces(self, surface_ids):
+        """
+        Register the case-level STARFiSh surface ids used by the C++ bridge.
+
+        Surface ids are STARFiSh-facing labels. The bridge maps their sorted
+        order to CRIMSON circuit indices in netlist_surfaces.xml.
+        """
+        new_ids = sorted(set(int(surface_id) for surface_id in surface_ids))
+        merged_ids = sorted(set(self.surface_ids).union(new_ids))
+        if merged_ids == self.surface_ids:
+            return None
+        self.surface_ids = merged_ids
+        if self._bridge is not None:
+            self._bridge.register_surfaces(self.surface_ids)
+        return None
 
     def load(self, dt=None):
         """
@@ -38,6 +79,8 @@ class CrimsonNetlistAdapter(object):
         dt = self._resolve_dt(dt)
         module = self._import_bridge_module()
         self._bridge = module.CrimsonBridge(self.hstep, self.alfi, dt)
+        if self.output_directory is not None:
+            self._bridge.set_output_directory(self.output_directory)
         previous_cwd = os.getcwd()
         xml_dir = os.path.dirname(self.netlist_xml)
         try:

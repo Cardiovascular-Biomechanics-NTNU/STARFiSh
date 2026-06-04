@@ -20,6 +20,20 @@ class NetlistBoundaryManager(object):
         self.netlist_file = None
         self.adapter = None
         self._active_timestep = None
+        self.output_directory = None
+
+    def set_output_directory(self, output_directory):
+        """
+        Set where CRIMSON netlist history files should be written.
+
+        STARFiSh run outputs live under results/SolutionData_<number>. The
+        CRIMSON netlist writer emits relative file names such as
+        netlistPressures_surface_0.dat, so the adapter receives the same
+        solution directory and tells the C++ bridge to write from there.
+        """
+        self.output_directory = output_directory
+        if self.adapter is not None:
+            self.adapter.set_output_directory(output_directory)
 
     def register_boundary(
         self,
@@ -51,6 +65,8 @@ class NetlistBoundaryManager(object):
             "rtilde": rtilde,
             "s": s,
         }
+        if self.adapter is not None and rtilde is None:
+            self.adapter.register_surfaces(self._real_surface_ids())
 
     def set_netlist_file(self, netlist_file):
         """
@@ -229,10 +245,21 @@ class NetlistBoundaryManager(object):
             self.adapter = CrimsonNetlistAdapter(
                 self.netlist_file,
                 delt=dt,
-                surface_ids=sorted(self.boundaries.keys()),
+                surface_ids=self._real_surface_ids(),
+                output_directory=self.output_directory,
             )
             self.adapter.load(dt)
         return self.adapter
+
+    def _real_surface_ids(self):
+        """
+        Return sorted surface ids that are backed by the CRIMSON netlist.
+        """
+        return sorted(
+            int(surface_id)
+            for surface_id, boundary in self.boundaries.items()
+            if boundary["rtilde"] is None
+        )
 
 
 _DEFAULT_MANAGER = NetlistBoundaryManager()

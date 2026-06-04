@@ -333,9 +333,10 @@ class VascularEditorWidget(QtWidgets.QWidget):
         import NetworkLib.classVascularNetwork as cVascNw
 
         # export full vascularNetwork XML from current scene
-        fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export Network XML", "network_export.xml", "XML Files (*.xml)")
+        fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export Network XML", "input.xml", "XML Files (*.xml)")
         if not fname:
             return False
+        case_dir = os.path.dirname(os.path.abspath(fname))
 
         # traverse scene to assign IDs and topology
         edges = [it for it in self.scene.items() if isinstance(it, VesselEdge)]
@@ -418,6 +419,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         # attach boundary conditions from nodes, respecting start/end positions
         boundary_by_vessel = {}
+        netlist_entries = []
         nodes = [it for it in self.scene.items() if isinstance(it, JunctionNode)]
         for node in nodes:
             conditions = getattr(node, 'boundary_conditions', None)
@@ -444,6 +446,54 @@ class VascularEditorWidget(QtWidgets.QWidget):
                 if vid is None:
                     continue
                 boundary_by_vessel.setdefault(vid, []).append(bc)
+                if str(name).lstrip('_') == 'Netlist':
+                    branch_dat = getattr(bc, 'branchDat', None)
+                    if branch_dat is None or str(branch_dat).strip() == '':
+                        QtWidgets.QMessageBox.critical(
+                            self,
+                            'Missing Netlist DAT',
+                            'Netlist boundary on vessel {} is missing branchDat.'.format(vid),
+                        )
+                        return False
+
+                    branch_dat = os.path.abspath(os.path.expanduser(str(branch_dat)))
+                    try:
+                        map_branch_dat = os.path.relpath(branch_dat, case_dir)
+                    except ValueError:
+                        map_branch_dat = branch_dat
+                    junction_id = str(getattr(node, 'name', '') or '').strip()
+                    if not junction_id or junction_id.lower() == 'junction':
+                        junction_id = 'vessel{}_{}'.format(vid, 'end' if is_end else 'start')
+
+                    netlist_entries.append({
+                        'bc': bc,
+                        'vesselId': vid,
+                        'junctionId': junction_id,
+                        'position': 'end' if is_end else 'start',
+                        'flowSign': 1.0 if is_end else -1.0,
+                        'branchDat': map_branch_dat,
+                        'isHeartModel': bool(getattr(bc, 'isHeartModel', False)),
+                    })
+
+        netlist_entries.sort(key=lambda row: (int(row['vesselId']), row['position'], str(row['junctionId'])))
+        netlist_map_rows = []
+        for surface_id, entry in enumerate(netlist_entries):
+            bc = entry['bc']
+            bc.update({
+                'surfaceId': surface_id,
+                'flowSign': entry['flowSign'],
+                'Rtilde': None,
+                'S': 0.0,
+            })
+            netlist_map_rows.append({
+                'surfaceId': surface_id,
+                'vesselId': entry['vesselId'],
+                'junctionId': entry['junctionId'],
+                'position': entry['position'],
+                'flowSign': entry['flowSign'],
+                'branchDat': entry['branchDat'],
+                'isHeartModel': entry['isHeartModel'],
+            })
 
         for vid, bcs in boundary_by_vessel.items():
             vascularNetwork.boundaryConditions[vid] = list(bcs)
@@ -451,7 +501,17 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # write XML
         try:
             mXML.writeNetworkToXML(vascularNetwork, dataNumber='xxx', networkXmlFile=fname)
-            QtWidgets.QMessageBox.information(self, 'Exported', f'Exported network XML to {fname}')
+            exported_files = ['input XML: {}'.format(fname)]
+            if netlist_map_rows:
+                from UtilityLib import netlistSurfaceBuilder as nls_builder
+
+                map_file = os.path.join(case_dir, 'netlist_map.csv')
+                netlist_file = os.path.join(case_dir, 'netlist_surfaces.xml')
+                nls_builder.write_netlist_map(netlist_map_rows, map_file)
+                nls_builder.build_netlist_surfaces(netlist_map_rows, netlist_file, base_dir=case_dir)
+                exported_files.append('netlist map: {}'.format(map_file))
+                exported_files.append('netlist XML: {}'.format(netlist_file))
+            QtWidgets.QMessageBox.information(self, 'Exported', 'Exported:\n{}'.format('\n'.join(exported_files)))
             return True
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to write network XML: {e}')

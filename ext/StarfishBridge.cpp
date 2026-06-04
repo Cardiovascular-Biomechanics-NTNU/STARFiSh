@@ -4,6 +4,8 @@
 #include <petscsys.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <sstream>
@@ -13,6 +15,7 @@
 #include <vector>
 
 #include <boost/shared_ptr.hpp>
+#include <unistd.h>
 
 class StarfishBridge {
 public:
@@ -43,11 +46,23 @@ public:
 
     void load(const std::string& xml_path, const std::vector<int>& surface_ids) {
         if (m_loaded) {
+            register_surfaces(surface_ids);
             return;
         }
 
         m_xmlPath = xml_path;
+        register_surfaces(surface_ids);
 
+        for (std::map<int, int>::const_iterator entry = m_surfaceToNetlistIndex.begin();
+             entry != m_surfaceToNetlistIndex.end();
+             ++entry) {
+            create_surface_if_needed(entry->first);
+        }
+
+        m_loaded = true;
+    }
+
+    void register_surfaces(const std::vector<int>& surface_ids) {
         std::vector<int> sorted_surface_ids = surface_ids;
         std::sort(sorted_surface_ids.begin(), sorted_surface_ids.end());
         sorted_surface_ids.erase(
@@ -57,10 +72,15 @@ public:
         for (std::vector<int>::const_iterator surface_id = sorted_surface_ids.begin();
              surface_id != sorted_surface_ids.end();
              ++surface_id) {
-            create_surface_if_needed(*surface_id);
+            if (m_surfaceToNetlistIndex.find(*surface_id) == m_surfaceToNetlistIndex.end()) {
+                int netlist_index = static_cast<int>(m_surfaceToNetlistIndex.size());
+                m_surfaceToNetlistIndex.insert(std::make_pair(*surface_id, netlist_index));
+            }
         }
+    }
 
-        m_loaded = true;
+    void set_output_directory(const std::string& output_directory) {
+        m_outputDirectory = output_directory;
     }
 
     std::pair<double, double> compute_implicit_coefficients(int surface_id,
@@ -151,6 +171,32 @@ public:
             entry->second.circuit->finalizeLPNAtEndOfTimestep();
         }
 
+        std::string previous_cwd;
+        bool changed_directory = false;
+        try {
+            if (!m_outputDirectory.empty()) {
+                previous_cwd = current_working_directory();
+                change_working_directory(m_outputDirectory);
+                changed_directory = true;
+            }
+
+            for (std::map<int, SurfaceState>::iterator entry = m_surfaces.begin();
+                 entry != m_surfaces.end();
+                 ++entry) {
+                entry->second.circuit->writePressuresFlowsAndVolumes(
+                    entry->second.next_timestep_write_start);
+            }
+        } catch (...) {
+            if (changed_directory) {
+                change_working_directory(previous_cwd);
+            }
+            throw;
+        }
+
+        if (changed_directory) {
+            change_working_directory(previous_cwd);
+        }
+
         m_timestepFinalized = true;
     }
 
@@ -158,11 +204,13 @@ private:
     struct SurfaceState {
         SurfaceState()
             : pressure(0.0),
-              flow(0.0) {
+              flow(0.0),
+              next_timestep_write_start(0) {
         }
 
         double pressure;
         double flow;
+        int next_timestep_write_start;
         boost::shared_ptr<NetlistCircuit> circuit;
     };
 
@@ -190,7 +238,11 @@ private:
             m_surfaces.insert(std::make_pair(surface_id, SurfaceState()));
         SurfaceState& state = insertion.first->second;
 
-        int netlist_index = static_cast<int>(m_surfaces.size()) - 1;
+        if (m_surfaceToNetlistIndex.find(surface_id) == m_surfaceToNetlistIndex.end()) {
+            int netlist_index = static_cast<int>(m_surfaceToNetlistIndex.size());
+            m_surfaceToNetlistIndex.insert(std::make_pair(surface_id, netlist_index));
+        }
+        int netlist_index = m_surfaceToNetlistIndex.at(surface_id);
         state.circuit = boost::shared_ptr<NetlistCircuit>(
             new NetlistCircuit(m_hstep, surface_id, netlist_index, false, m_alfi, m_delt, 0));
 
@@ -227,11 +279,32 @@ private:
         m_timestepFinalized = false;
     }
 
+    std::string current_working_directory() const {
+        char buffer[4096];
+        if (getcwd(buffer, sizeof(buffer)) == NULL) {
+            std::stringstream message;
+            message << "Unable to read current working directory: " << std::strerror(errno);
+            throw std::runtime_error(message.str());
+        }
+        return std::string(buffer);
+    }
+
+    void change_working_directory(const std::string& directory) const {
+        if (chdir(directory.c_str()) != 0) {
+            std::stringstream message;
+            message << "Unable to change directory to " << directory << ": "
+                    << std::strerror(errno);
+            throw std::runtime_error(message.str());
+        }
+    }
+
     int m_hstep;
     double m_alfi;
     double m_delt;
     std::string m_xmlPath;
+    std::string m_outputDirectory;
     std::map<int, SurfaceState> m_surfaces;
+    std::map<int, int> m_surfaceToNetlistIndex;
     bool m_loaded;
     bool m_timestepStarted;
     bool m_timestepFinalized;

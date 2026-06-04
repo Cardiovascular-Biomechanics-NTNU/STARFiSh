@@ -88,6 +88,7 @@ def _write_description_index(results_dir, data_number, description):
 
 def run_case(input_xml, output_dir, output_prefix, data_number, description, export_ascii=False, ascii_dir=None):
     import SolverLib.class1DflowSolver as c1DFlowSolv
+    from NetworkLib.netlistManager import get_default_netlist_manager
     import UtilityLib.moduleXML as mXML
     from UtilityLib.hdf5ToAscii import export_hdf5_to_ascii
 
@@ -105,6 +106,7 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
     output_hdf5 = os.path.join(solution_dir, "{}.hdf5".format(output_prefix))
     output_xml = os.path.join(solution_dir, "{}.xml".format(output_prefix))
     _write_description_index(results_dir, data_number, description)
+    get_default_netlist_manager().set_output_directory(solution_dir)
 
     logger.info("____________Simulation_______________")
     logger.info("%-20s %s" % ("Input XML", input_xml))

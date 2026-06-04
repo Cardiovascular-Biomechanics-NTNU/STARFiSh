@@ -255,6 +255,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.set_boundary_condition_fields_enabled(False)
         # (Save/Load project buttons will be connected by the main editor)
         self.bc_field_edits = {}
+        self.bc_metadata_fields = set()
         self.compliance_field_edits = {}
         self._suspend_geometry_sync = False
         self._current_boundary_node = None
@@ -728,10 +729,16 @@ class PropertiesPanel(QtWidgets.QWidget):
     def _build_bc_editor(self, bc_type, bc_instance=None):
         self._clear_layout(self.bc_form_layout)
         self.bc_field_edits = {}
+        self.bc_metadata_fields = set()
         if not bc_type:
             return
 
         field_names = list(nxml.boundaryConditionElements.get(bc_type, []))
+        if bc_type == "Netlist":
+            field_names = [
+                field_name for field_name in field_names
+                if field_name not in ("surfaceId", "flowSign", "Rtilde", "S")
+            ]
         for field_name in field_names:
             template_value = getattr(bc_instance, field_name, None) if bc_instance is not None else None
             if template_value is None:
@@ -747,6 +754,52 @@ class PropertiesPanel(QtWidgets.QWidget):
             self.bc_form_layout.addRow(f"{field_name}:", editor)
             self.bc_field_edits[field_name] = editor
 
+        if bc_type == "Netlist":
+            self._add_netlist_metadata_fields(bc_instance)
+
+    def _add_netlist_metadata_fields(self, bc_instance=None):
+        """
+        Add GUI-only fields needed to build netlist_map.csv.
+
+        These fields are intentionally not part of STARFiSh input.xml. The
+        surfaceId and flowSign are assigned automatically during export. The
+        DAT file and heart flag describe how the case directory should build
+        netlist_surfaces.xml.
+        """
+        dat_edit = QtWidgets.QLineEdit()
+        dat_edit.setPlaceholderText("CRIMSON branch .dat file")
+        dat_value = getattr(bc_instance, "branchDat", "") if bc_instance is not None else ""
+        dat_edit.setText("" if dat_value is None else str(dat_value))
+
+        browse_button = QtWidgets.QPushButton("Browse")
+        browse_button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        browse_button.clicked.connect(lambda: self._browse_netlist_branch_dat(dat_edit))
+
+        dat_row = QtWidgets.QHBoxLayout()
+        dat_row.setSpacing(6)
+        dat_row.addWidget(dat_edit)
+        dat_row.addWidget(browse_button)
+        self.bc_form_layout.addRow("branchDat:", dat_row)
+        self.bc_field_edits["branchDat"] = dat_edit
+        self.bc_metadata_fields.add("branchDat")
+
+        heart_check = QtWidgets.QCheckBox("Heart model")
+        heart_value = getattr(bc_instance, "isHeartModel", False) if bc_instance is not None else False
+        heart_check.setChecked(str(heart_value).lower() in ("1", "true", "yes", "y", "t"))
+        self.bc_form_layout.addRow("isHeartModel:", heart_check)
+        self.bc_field_edits["isHeartModel"] = heart_check
+        self.bc_metadata_fields.add("isHeartModel")
+
+    def _browse_netlist_branch_dat(self, target_edit):
+        fname, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select CRIMSON Netlist DAT",
+            "",
+            "CRIMSON Netlist DAT (*.dat);;All Files (*)",
+        )
+        if fname:
+            target_edit.setText(fname)
+
     def _reset_boundary_condition_editor(self):
         self.bc_type.blockSignals(True)
         self.bc_position.blockSignals(True)
@@ -756,6 +809,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.bc_position.blockSignals(False)
         self._clear_layout(self.bc_form_layout)
         self.bc_field_edits = {}
+        self.bc_metadata_fields = set()
 
     def _populate_bc_editor_from_instance(self, bc_instance):
         if bc_instance is None:
@@ -773,7 +827,10 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._build_bc_editor(bc_type, bc_instance)
             for field_name, editor in self.bc_field_edits.items():
                 value = getattr(bc_instance, field_name, None)
-                editor.setText('' if value is None else str(value))
+                if isinstance(editor, QtWidgets.QCheckBox):
+                    editor.setChecked(str(value).lower() in ('1', 'true', 'yes', 'y', 't'))
+                else:
+                    editor.setText('' if value is None else str(value))
 
     def _get_current_bc_instance(self):
         node = self._selected_boundary_node()
@@ -830,9 +887,16 @@ class PropertiesPanel(QtWidgets.QWidget):
             bc_instance.setPosition(0 if position_index == 0 else -1)
 
         for field_name, editor in self.bc_field_edits.items():
-            template_value = getattr(bc_instance, field_name, None)
-            parsed_value = self._parse_bc_value(template_value, editor.text())
-            bc_instance.update({field_name: parsed_value})
+            if isinstance(editor, QtWidgets.QCheckBox):
+                parsed_value = editor.isChecked()
+            else:
+                template_value = getattr(bc_instance, field_name, None)
+                parsed_value = self._parse_bc_value(template_value, editor.text())
+
+            if field_name in self.bc_metadata_fields:
+                setattr(bc_instance, field_name, parsed_value)
+            else:
+                bc_instance.update({field_name: parsed_value})
 
         return bc_instance
 
@@ -893,6 +957,9 @@ class PropertiesPanel(QtWidgets.QWidget):
                     lines.append(f'  {field_name}: {bc.getVariableValue(field_name)}')
                 else:
                     lines.append(f'  {field_name}: {getattr(bc, field_name, None)}')
+            if str(name).lstrip('_') == 'Netlist':
+                lines.append(f'  branchDat: {getattr(bc, "branchDat", "")}')
+                lines.append(f'  isHeartModel: {getattr(bc, "isHeartModel", False)}')
         QtWidgets.QMessageBox.information(self, 'Boundary conditions', '\n'.join(lines))
 
     def open_netlist_editor(self):

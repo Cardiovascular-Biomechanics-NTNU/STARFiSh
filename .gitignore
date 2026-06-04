@@ -1,4 +1,6 @@
 .codex
 *__pycache__/
 examples/
-
+.agents
+__pycache__/
+*.txt

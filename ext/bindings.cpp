@@ -15,6 +15,8 @@ NB_MODULE(crimson_starfish_bridge, m) {
              nb::overload_cast<const std::string&>(&StarfishBridge::load))
         .def("load",
              nb::overload_cast<const std::string&, const std::vector<int>&>(&StarfishBridge::load))
+        .def("register_surfaces", &StarfishBridge::register_surfaces)
+        .def("set_output_directory", &StarfishBridge::set_output_directory)
         .def("start_timestep", &StarfishBridge::start_timestep)
         .def("compute_implicit_coefficients", &StarfishBridge::compute_implicit_coefficients)
         .def("compute_update_coefficients", &StarfishBridge::compute_update_coefficients)

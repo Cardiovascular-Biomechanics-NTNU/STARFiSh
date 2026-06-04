@@ -336,6 +336,7 @@ variablesDict = {## class Vascular Network
                  'freq'              : {'type':'float',  'unitSI': 's-1',       'strCases': None, 'multiVar': False},
                  'Tspace'            : {'type':'float',  'unitSI': 's',         'strCases': None, 'multiVar': False},
                  'runtimeEvaluation' : {'type':'bool',   'unitSI': None,        'strCases': None, 'multiVar': False},
+                 'scale'             : {'type':'float',  'unitSI': None,        'strCases': None, 'multiVar': False},
                  'filePathName'      : {'type':'str',    'unitSI': None,        'strCases': ['anything'], 'multiVar': False},
                  'prescribe'         : {'type':'str',    'unitSI': None,        'strCases': ['influx','total'], 'multiVar': False},
                  'gaussC'            : {'type':'float',  'unitSI': None,        'strCases': None, 'multiVar': False},
