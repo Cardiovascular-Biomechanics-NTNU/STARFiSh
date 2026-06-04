@@ -492,6 +492,14 @@ class FlowSolver(cSBO.StarfishBaseObject):
         from NetworkLib.netlistManager import get_default_netlist_manager
         get_default_netlist_manager().finalize_timestep(n)
 
+    def startNetlistTimestep(self, n):
+        """
+        Run CRIMSON's netlist start-of-timestep hook before STARFiSh boundary
+        objects request netlist coefficients for timestep n.
+        """
+        from NetworkLib.netlistManager import get_default_netlist_manager
+        get_default_netlist_manager().start_timestep(n, (n + 1) * self.dt, self.dt)
+
     def MacCormack_Field(self):
         """
         MacCormack solver method with forward-euler time steping,
@@ -516,6 +524,14 @@ class FlowSolver(cSBO.StarfishBaseObject):
                 
                 if self.quiet == False:
                     progressLog.progress(n)
+
+                try:
+                    self.startNetlistTimestep(n)
+                except Exception:
+                    logger.critical("Exception caught while starting netlist boundary manager")
+                    self.vascularNetwork.runtimeMemoryManager.flushSolutionMemory()
+                    self.vascularNetwork.saveSolutionData()
+                    raise
                 
                 for numericalObject in self.numericalObjects:
                     try:
@@ -564,6 +580,7 @@ class FlowSolver(cSBO.StarfishBaseObject):
                 for n in range(self.nTSteps-1):
 
                     self.currentTimeStep[0] = n
+                    self.startNetlistTimestep(n)
                     for numericalObject in self.numericalObjects:
                         numericalObject()
                     self.finalizeNetlistTimestep(n)

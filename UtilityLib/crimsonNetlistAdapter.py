@@ -60,7 +60,7 @@ class CrimsonNetlistAdapter(object):
             P_interface = dp_dq * Q_interface + Hop
 
         The C++ bridge uses `surface_id` to select the corresponding CRIMSON
-        `NetlistBoundaryCondition`.
+        `NetlistCircuit`.
         """
         bridge = self._ensure_bridge(dt)
         return bridge.compute_implicit_coefficients(
@@ -70,6 +70,47 @@ class CrimsonNetlistAdapter(object):
             float(dt),
             float(flow),
         )
+
+    def compute_update_coefficients(self, surface_id, timestep, time, dt, flow):
+        """
+        Ask CRIMSON for the update-phase coefficients.
+
+        This mirrors CRIMSON's `computeImplicitCoeff_update`, which calls the
+        netlist coefficient computation with `alfi_delt = delt`.
+        """
+        bridge = self._ensure_bridge(dt)
+        return bridge.compute_update_coefficients(
+            int(surface_id),
+            int(timestep),
+            float(time),
+            float(dt),
+            float(flow),
+        )
+
+    def flow_permitted(self, surface_id, dt=None):
+        """
+        Return CRIMSON's current diode/interface flow-permission state.
+        """
+        bridge = self._ensure_bridge(dt)
+        return bool(bridge.flow_permitted(int(surface_id)))
+
+    def boundary_condition_type_changed(self, surface_id, dt=None):
+        """
+        Return whether CRIMSON reports a boundary-mode change for this surface.
+        """
+        bridge = self._ensure_bridge(dt)
+        return bool(bridge.boundary_condition_type_changed(int(surface_id)))
+
+    def start_timestep(self, timestep, time, dt):
+        """
+        Run CRIMSON's per-timestep netlist preparation phase.
+
+        This mirrors `initialiseAtStartOfTimestep()` in CRIMSON. It must happen
+        once before coefficients are requested for a timestep so diode switching,
+        controller updates, and per-step bookkeeping are applied consistently.
+        """
+        bridge = self._ensure_bridge(dt)
+        bridge.start_timestep(int(timestep), float(time), float(dt))
 
     def update_state(self, surface_id, timestep, time, dt, pressure, flow):
         """

@@ -19,6 +19,7 @@ class NetlistBoundaryManager(object):
         self.pending_states = {}
         self.netlist_file = None
         self.adapter = None
+        self._active_timestep = None
 
     def register_boundary(
         self,
@@ -84,7 +85,66 @@ class NetlistBoundaryManager(object):
         if boundary["rtilde"] is not None:
             return float(boundary["rtilde"]), float(boundary["s"])
         adapter = self._get_adapter(dt)
+        if self._active_timestep != int(timestep):
+            self.start_timestep(timestep, time, dt)
         return adapter.compute_implicit_coefficients(surface_id, timestep, time, dt, flow)
+
+    def compute_update_coefficients(self, surface_id, timestep, time, dt, flow):
+        """
+        Compute CRIMSON's update-phase coefficients for one real netlist surface.
+
+        The current STARFiSh characteristic solve does not consume these
+        coefficients directly, but CRIMSON computes them during its corrector
+        phase with `alfi_delt = dt`. Calling this keeps the netlist lifecycle
+        closer to the 3D code path.
+        """
+        surface_id = int(surface_id)
+        boundary = self.boundaries.get(surface_id)
+        if boundary is None:
+            raise KeyError("No netlist boundary registered for surfaceId {}".format(surface_id))
+        if boundary["rtilde"] is not None:
+            return float(boundary["rtilde"]), float(boundary["s"])
+        adapter = self._get_adapter(dt)
+        if self._active_timestep != int(timestep):
+            self.start_timestep(timestep, time, dt)
+        return adapter.compute_update_coefficients(surface_id, timestep, time, dt, flow)
+
+    def flow_permitted(self, surface_id, timestep, time, dt):
+        """
+        Return whether CRIMSON currently permits interface flow for this surface.
+
+        Fake constant-mode boundaries always permit flow. Real netlist mode
+        delegates to CRIMSON after the timestep has been initialized, so closed
+        diode cases can switch the 1D interface to a zero-flow condition.
+        """
+        surface_id = int(surface_id)
+        boundary = self.boundaries.get(surface_id)
+        if boundary is None:
+            raise KeyError("No netlist boundary registered for surfaceId {}".format(surface_id))
+        if boundary["rtilde"] is not None:
+            return True
+        if self._active_timestep != int(timestep):
+            self.start_timestep(timestep, time, dt)
+        return self._get_adapter(dt).flow_permitted(surface_id, dt)
+
+    def start_timestep(self, timestep, time, dt):
+        """
+        Start CRIMSON's global netlist timestep once before boundary solves.
+
+        This mirrors CRIMSON's initialise-at-start hook. Fake constant
+        Rtilde/S boundaries do not need the compiled adapter, so this method is
+        a no-op unless at least one registered boundary is in real netlist mode.
+        """
+        timestep = int(timestep)
+        if self._active_timestep == timestep:
+            return None
+        if not self._has_real_boundaries():
+            self._active_timestep = timestep
+            return None
+        adapter = self._get_adapter(dt)
+        adapter.start_timestep(timestep, time, dt)
+        self._active_timestep = timestep
+        return None
 
     def record_boundary_state(self, surface_id, timestep, time, dt, pressure, flow):
         """
@@ -121,6 +181,13 @@ class NetlistBoundaryManager(object):
             adapter = self._get_adapter(first_state["dt"])
             for surface_id in sorted(self.pending_states):
                 state = self.pending_states[surface_id]
+                self.compute_update_coefficients(
+                    surface_id,
+                    state["timestep"],
+                    state["time"],
+                    state["dt"],
+                    state["flow"],
+                )
                 adapter.update_state(
                     surface_id,
                     state["timestep"],
@@ -133,7 +200,18 @@ class NetlistBoundaryManager(object):
             self.pending_states.clear()
         elif self.adapter is not None:
             self.adapter.finalize_timestep(timestep)
+        if self._active_timestep == int(timestep):
+            self._active_timestep = None
         return None
+
+    def _has_real_boundaries(self):
+        """
+        Return True when any registered boundary needs the CRIMSON adapter.
+        """
+        for boundary in self.boundaries.values():
+            if boundary["rtilde"] is None:
+                return True
+        return False
 
     def _get_adapter(self, dt):
         """

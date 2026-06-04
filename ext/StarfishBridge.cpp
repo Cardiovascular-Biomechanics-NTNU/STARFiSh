@@ -4,6 +4,7 @@
 #include <petscsys.h>
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -71,11 +72,48 @@ public:
         ensure_dt_matches(dt);
 
         SurfaceState& state = get_surface(surface_id);
-        begin_timestep_if_needed(timestep);
+        start_timestep(timestep, time, dt);
+
+        if (!state.circuit->flowPermittedAcross3DInterface()) {
+            return std::make_pair(std::numeric_limits<double>::quiet_NaN(),
+                                  std::numeric_limits<double>::quiet_NaN());
+        }
 
         state.flow = flow;
         double alfi_delt = m_alfi * m_delt;
         return state.circuit->computeImplicitCoefficients(timestep, time, alfi_delt);
+    }
+
+    std::pair<double, double> compute_update_coefficients(int surface_id,
+                                                          int timestep,
+                                                          double time,
+                                                          double dt,
+                                                          double flow) {
+        ensure_loaded();
+        ensure_dt_matches(dt);
+
+        SurfaceState& state = get_surface(surface_id);
+        start_timestep(timestep, time, dt);
+
+        if (!state.circuit->flowPermittedAcross3DInterface()) {
+            return std::make_pair(std::numeric_limits<double>::quiet_NaN(),
+                                  std::numeric_limits<double>::quiet_NaN());
+        }
+
+        state.flow = flow;
+        return state.circuit->computeImplicitCoefficients(timestep, time, m_delt);
+    }
+
+    bool flow_permitted(int surface_id) {
+        ensure_loaded();
+        SurfaceState& state = get_surface(surface_id);
+        return state.circuit->flowPermittedAcross3DInterface();
+    }
+
+    bool boundary_condition_type_changed(int surface_id) {
+        ensure_loaded();
+        SurfaceState& state = get_surface(surface_id);
+        return state.circuit->boundaryConditionTypeHasJustChanged();
     }
 
     void update_state(int surface_id,
@@ -88,11 +126,17 @@ public:
         ensure_dt_matches(dt);
 
         SurfaceState& state = get_surface(surface_id);
-        begin_timestep_if_needed(timestep);
+        start_timestep(timestep, 0.0, dt);
 
         state.pressure = pressure;
         state.flow = flow;
         state.circuit->updateLPN(timestep);
+    }
+
+    void start_timestep(int timestep, double /*time*/, double dt) {
+        ensure_loaded();
+        ensure_dt_matches(dt);
+        begin_timestep_if_needed(timestep);
     }
 
     void finalize_timestep(int timestep) {
@@ -168,7 +212,7 @@ private:
     }
 
     void begin_timestep_if_needed(int timestep) {
-        if (m_timestepStarted && m_currentTimestep == timestep) {
+        if (m_timestepStarted && m_currentTimestep == timestep && !m_timestepFinalized) {
             return;
         }
 

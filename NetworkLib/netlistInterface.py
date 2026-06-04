@@ -51,6 +51,34 @@ def solve_robin_characteristic(position, omega_known, R, P, Q, dp_dq, hop, flow_
     raise ValueError("Unsupported boundary position for netlist coupling: {}".format(position))
 
 
+def solve_prescribed_flow_characteristic(position, omega_known, R, Q, prescribed_flow=0.0):
+    """
+    Solve the local characteristic system when CRIMSON reports that no flow is
+    permitted across the netlist interface.
+
+    The closed-interface condition is:
+
+        Q_new = prescribed_flow
+
+    For diode-blocked netlists the prescribed flow is currently zero.
+    """
+    r21, r22 = R[1][0], R[1][1]
+
+    if position == -1:
+        omega = np.empty(2)
+        omega[0] = omega_known
+        omega[1] = (prescribed_flow - Q - r21 * omega_known) / r22
+        return omega
+
+    if position == 0:
+        omega = np.empty(2)
+        omega[0] = (prescribed_flow - Q - r22 * omega_known) / r21
+        omega[1] = omega_known
+        return omega
+
+    raise ValueError("Unsupported boundary position for netlist coupling: {}".format(position))
+
+
 class NetlistBoundaryInterface(object):
     """
     Interface layer between STARFiSh Type 2 boundary calls and the netlist
@@ -64,10 +92,34 @@ class NetlistBoundaryInterface(object):
         self.manager = manager
 
     def solve(self, omega_known, R, nmem, n, dt, P, Q, A, Z1, Z2):
+        time = (n + 1) * dt
+        if not self.manager.flow_permitted(self.surface_id, n, time, dt):
+            omega = solve_prescribed_flow_characteristic(
+                self.position,
+                omega_known,
+                R,
+                Q,
+                prescribed_flow=0.0,
+            )
+            du = np.dot(R, omega)
+            self.manager.record_boundary_state(
+                self.surface_id,
+                timestep=n,
+                time=time,
+                dt=dt,
+                pressure=P + du[0],
+                flow=self.flow_sign * (Q + du[1]),
+            )
+            if self.position == -1:
+                dQInOut = (R[:][1] * omega)[::-1].copy()
+            else:
+                dQInOut = R[:][1] * omega
+            return du, dQInOut
+
         dp_dq, hop = self.manager.compute_coefficients(
             self.surface_id,
             timestep=n,
-            time=n * dt,
+            time=time,
             dt=dt,
             pressure=P,
             flow=self.flow_sign * Q,
@@ -86,7 +138,7 @@ class NetlistBoundaryInterface(object):
         self.manager.record_boundary_state(
             self.surface_id,
             timestep=n,
-            time=n * dt,
+            time=time,
             dt=dt,
             pressure=P + du[0],
             flow=self.flow_sign * (Q + du[1]),
