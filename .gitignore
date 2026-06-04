@@ -4,7 +4,7 @@
 examples/
 *.txt
 LOG*.txt
-
+build
 # Python
 __pycache__/
 *__pycache__/
