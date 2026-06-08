@@ -5,33 +5,28 @@ os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib-starfish')
 os.environ.setdefault('XDG_CACHE_HOME', '/tmp')
 os.environ.setdefault('NO_AT_BRIDGE', '1')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
-try:
-    import gtk
-    import gobject
-    matplotlibBackend = 'GTKAgg'
-    from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
-    from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
-except ImportError:
-    from gi import pygtkcompat
-    pygtkcompat.enable()
-    pygtkcompat.enable_gtk(version='3.0')
-    from gi.repository import GLib
-    import gtk
-    import gobject
-    matplotlibBackend = 'GTK3Agg'
-    from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
-    from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
-    class NavigationToolbar(NavigationToolbar2GTK3):
-        def __init__(self, canvas, window=None):
-            super(NavigationToolbar, self).__init__(canvas)
 
-        def configure_subplots(self, *args, **kwargs):
-            try:
-                return super(NavigationToolbar, self).configure_subplots(*args, **kwargs)
-            except Exception as error:
-                print("WARNING: subplot configuration dialog is unavailable: {}".format(error))
-else:
-    GLib = None
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk as gtk
+from gi.repository import GObject as gobject
+from gi.repository import GLib
+
+matplotlibBackend = "GTK3Agg"
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
+
+class NavigationToolbar(NavigationToolbar2GTK3):
+    def __init__(self, canvas, window=None):
+        super(NavigationToolbar, self).__init__(canvas)
+
+    def configure_subplots(self, *args, **kwargs):
+        try:
+            return super(NavigationToolbar, self).configure_subplots(*args, **kwargs)
+        except Exception as error:
+            print("WARNING: subplot configuration dialog is unavailable: {}".format(error))
+
+
 import matplotlib
 matplotlib.use(matplotlibBackend)
 import matplotlib.pyplot as plt   
@@ -106,9 +101,9 @@ class Visualisation2DPlotWindowAdjustValues(gtk.Window):
         buttonReset.set_size_request(120,30)
         
         hbox = gtk.HBox(False, 10) 
-        hbox.pack_start(buttonUpdate, fill=False, expand=True)  
-        hbox.pack_start(buttonReset, fill=False, expand=True)   
-        vbox.pack_start(hbox, expand=True, fill=False)
+        hbox.pack_start(buttonUpdate, False, True, 0)  
+        hbox.pack_start(buttonReset, False, True, 0)   
+        vbox.pack_start(hbox, True, False, 0)
                 
         self.entriesCombo = {}
         
@@ -120,7 +115,7 @@ class Visualisation2DPlotWindowAdjustValues(gtk.Window):
         for key in keys:
             hbox = gtk.HBox(False, 10) 
             label = gtk.Label(key)
-            hbox.pack_start(label, fill=False, expand=True)     
+            hbox.pack_start(label, False, True, 0)     
             self.entriesCombo[key] = []
             
             countHeight = countHeight +1
@@ -147,10 +142,10 @@ class Visualisation2DPlotWindowAdjustValues(gtk.Window):
                     #entry.add_events(gtk.gdk.KEY_RELEASE_MASK)
                     entry.set_text(str(value))
                 
-                hbox.pack_start(entry, fill=False, expand=False)  
+                hbox.pack_start(entry, False, False, 0)  
                 self.entriesCombo[key].append(entry)   
                 
-            vbox.pack_start(hbox, expand=True, fill=False)
+            vbox.pack_start(hbox, True, False, 0)
             
         width = 130 + 120 * (countWidth)
         height  = 30 + 30*countHeight
@@ -317,41 +312,41 @@ class Visualisation2DPlotWindowGui(gtk.Window):
         hbox2 = gtk.HBox(False, 1)
                 
         # Checkbutton series
-        hboxLegend.pack_start(self.cBlegend)
-        hboxLegend.pack_start(buttonLabels)
-        hboxLegend.pack_start(self.buttonDescription)
+        hboxLegend.pack_start(self.cBlegend, False, False, 0)
+        hboxLegend.pack_start(buttonLabels, False, False, 0)
+        hboxLegend.pack_start(self.buttonDescription, False, False, 0)
         
         # hboxLegend.pack_start(cBmedical)
-        hboxLegend.pack_start(self.buttonRenderMovie)
-        hboxCheckboxes2.pack_start(self.buttonMinMaxPoints)
-        hboxCheckboxes2.pack_start(buttonDeltas)
-        hboxCheckboxes2.pack_start(buttonLimits)
-        hboxCheckboxes2.pack_start(self.buttonLines)  
+        hboxLegend.pack_start(self.buttonRenderMovie, False, False, 0)
+        hboxCheckboxes2.pack_start(self.buttonMinMaxPoints, False, False, 0)
+        hboxCheckboxes2.pack_start(buttonDeltas, False, False, 0)
+        hboxCheckboxes2.pack_start(buttonLimits, False, False, 0)
+        hboxCheckboxes2.pack_start(self.buttonLines, False, False, 0)  
 
         # align pictures canvas
-        alignIm = gtk.Alignment(0, 1 , 1, 0)
+        alignIm = gtk.Alignment.new(0, 1 , 1, 0)
         alignIm.add(self.canvas)
         # align node switcher scale
-        hbox.pack_start(self.nodeLabel)
-        hbox.pack_start(self.scale)
-        alignHbox = gtk.Alignment(0, 1, 1, 0)
+        hbox.pack_start(self.nodeLabel, False, False, 0)
+        hbox.pack_start(self.scale, False, False, 0)
+        alignHbox = gtk.Alignment.new(0, 1, 1, 0)
         alignHbox.add(hbox)
         # align combobox
-        hbox2.pack_start(cbType)
-        hbox2.pack_start(self.cbXaxis)
-        alignCB = gtk.Alignment(0, 1, 1, 0)  
+        hbox2.pack_start(cbType, False, False, 0)
+        hbox2.pack_start(self.cbXaxis, False, False, 0)
+        alignCB = gtk.Alignment.new(0, 1, 1, 0)  
         alignCB.add(hbox2)
         # align navigation toolbox
-        alignNT = gtk.Alignment(0, 1, 1, 0)  
+        alignNT = gtk.Alignment.new(0, 1, 1, 0)  
         alignNT.add(toolbar)
         
         # put all together
-        vbox.pack_start(hboxLegend)
-        vbox.pack_start(hboxCheckboxes2)
-        vbox.pack_start(alignCB)
-        vbox.pack_start(alignNT)
-        vbox.pack_start(alignIm)
-        vbox.pack_start(alignHbox)
+        vbox.pack_start(hboxLegend, False, False, 0)
+        vbox.pack_start(hboxCheckboxes2, False, False, 0)
+        vbox.pack_start(alignCB, False, False, 0)
+        vbox.pack_start(alignNT, False, False, 0)
+        vbox.pack_start(alignIm, False, False, 0)
+        vbox.pack_start(alignHbox, False, False, 0)
         
         self.add(vbox)         
         self.show_all()
@@ -1569,19 +1564,19 @@ class Visualisation2DMainCase(object):
         spacingText25BoxDesc = gtk.Label('')
         spacingText25BoxDesc.set_size_request(25, 35)
 
-        hBoxButtons.pack_start(spacingText25Box, fill=False, expand=False)
-        hBoxButtons.pack_start(textComboBoxNetworks, fill=False, expand=False)
-        hBoxButtons.pack_start(self.comboBoxNetworks, fill=False, expand=False)
-        hBoxButtons.pack_start(self.comboBoxVessels, fill=False , expand=False)
+        hBoxButtons.pack_start(spacingText25Box, False, False, 0)
+        hBoxButtons.pack_start(textComboBoxNetworks, False, False, 0)
+        hBoxButtons.pack_start(self.comboBoxNetworks, False, False, 0)
+        hBoxButtons.pack_start(self.comboBoxVessels, False, False, 0)
          
-        hBoxDecription.pack_start(spacingText25BoxDesc, fill=False, expand=False)
-        hBoxDecription.pack_start(self.networkDescription, fill=False, expand=False)
+        hBoxDecription.pack_start(spacingText25BoxDesc, False, False, 0)
+        hBoxDecription.pack_start(self.networkDescription, False, False,0)
 
         separator = gtk.HSeparator()
         
-        self.vBoxCase.pack_start(hBoxButtons, expand=True, fill=False)
-        self.vBoxCase.pack_start(hBoxDecription, expand=True, fill=False)
-        self.vBoxCase.pack_start(separator, expand=True, fill=False)
+        self.vBoxCase.pack_start(hBoxButtons,True, False, 0)
+        self.vBoxCase.pack_start(hBoxDecription,True, False, 0)
+        self.vBoxCase.pack_start(separator,True, False, 0)
         
     def updateVesselComboBox(self):
         '''
@@ -1649,7 +1644,7 @@ class Visualisation2DMainGUI(gtk.Window):
         super(Visualisation2DMainGUI, self).__init__()
         # variables for windows                
         self.set_size_request(650, 290)
-        self.set_position(gtk.WIN_POS_CENTER)
+        self.set_position(gtk.WindowPosition.CENTER)
         self.connect("destroy", gtk.main_quit)
         self.mainTitle = "2D Visualisation - "
         self.set_title(self.mainTitle)
@@ -1692,29 +1687,29 @@ class Visualisation2DMainGUI(gtk.Window):
         spacingText25Box1 = gtk.Label('')
         spacingText25Box1.set_size_request(25, 35)
         
-        hBox1.pack_start(spacingText25Box1, fill=False, expand=False)
-        hBox1.pack_start(self.buttonOpenSolutionData, fill=False, expand=False)
-        hBox1.pack_start(self.buttonOpenPlotWindow, fill=False, expand=False)
+        hBox1.pack_start(spacingText25Box1, False, False, 0)
+        hBox1.pack_start(self.buttonOpenSolutionData, False, False, 0)
+        hBox1.pack_start(self.buttonOpenPlotWindow, False, False, 0)
         separator1 = gtk.HSeparator()
         
-        self.vBox.pack_start(hBox1, expand=False, fill=False)
-        self.vBox.pack_start(separator1, expand=False, fill=False)
+        self.vBox.pack_start(hBox1, False, False, 0)
+        self.vBox.pack_start(separator1,False, False, 0)
         
         # # add first case button
         newCase = Visualisation2DMainCase(len(self.cases) + 1)
         self.cases.append(newCase)
-        self.vBox.pack_start(newCase.vBoxCase, expand=False, fill=False)
+        self.vBox.pack_start(newCase.vBoxCase, False, False, 0)
                 
         # add more button
         hBoxAdd = gtk.HBox(False, 10)
         spacingText25Add = gtk.Label('')
         spacingText25Add.set_size_request(25, 35)
-        hBoxAdd.pack_start(spacingText25Add, fill=False, expand=False)
-        hBoxAdd.pack_start(self.buttonAddCase, fill=False, expand=False)
+        hBoxAdd.pack_start(spacingText25Add, False, False, 0)
+        hBoxAdd.pack_start(self.buttonAddCase, False, False, 0)
         separator2 = gtk.HSeparator()
         
-        self.vBox.pack_start(hBoxAdd, expand=False, fill=False)
-        self.vBox.pack_start(separator2, expand=False, fill=False)
+        self.vBox.pack_start(hBoxAdd, False, False, 0)
+        self.vBox.pack_start(separator2, False, False, 0)
                                 
         # external Data Set
         
@@ -1725,15 +1720,15 @@ class Visualisation2DMainGUI(gtk.Window):
         
         hBoxExternalData = gtk.HBox(False, 10)
         hBoxExternalDecription = gtk.HBox(False, 10)
-        hBoxExternalData.pack_start(spacingText25Box4text, fill=False, expand=False)
-        hBoxExternalData.pack_start(self.buttonOpenExternalData, fill=False, expand=False)
-        hBoxExternalData.pack_start(self.buttonEnableExternalData, fill=False, expand=False)        
-        hBoxExternalDecription.pack_start(spacingText25Box4Desc, fill=False, expand=False)
-        hBoxExternalDecription.pack_start(self.extDataDescription, fill=False, expand=False)
+        hBoxExternalData.pack_start(spacingText25Box4text, False, False, 0)
+        hBoxExternalData.pack_start(self.buttonOpenExternalData, False, False, 0)
+        hBoxExternalData.pack_start(self.buttonEnableExternalData, False, False, 0)        
+        hBoxExternalDecription.pack_start(spacingText25Box4Desc, False, False, 0)
+        hBoxExternalDecription.pack_start(self.extDataDescription, False, False, 0)
         
         # external Data Set
-        self.vBox.pack_start(hBoxExternalData, expand=False, fill=False)
-        self.vBox.pack_start(hBoxExternalDecription, expand=False, fill=False)       
+        self.vBox.pack_start(hBoxExternalData, False, False, 0)
+        self.vBox.pack_start(hBoxExternalDecription, False, False, 0)       
                      
         self.add(self.vBox)
         self.show_all()
@@ -1747,7 +1742,7 @@ class Visualisation2DMainGUI(gtk.Window):
             newCase = Visualisation2DMainCase(len(self.cases) + 1)
             newCase.updateNetworkComboBox(self.networkCases, self.networkInfo)
             self.cases.append(newCase)
-            self.vBox.pack_start(newCase.vBoxCase, expand=False, fill=False)
+            self.vBox.pack_start(newCase.vBoxCase, False, False, 0)
             self.vBox.reorder_child(newCase.vBoxCase, len(self.cases) + 1)
             
             width, height = self.get_size()
@@ -1901,10 +1896,10 @@ class Visualisation2DMain(Visualisation2DMainGUI):
         '''
         dialog = gtk.FileChooserDialog("Open Solution Data File..",
                                      None,
-                                     gtk.FILE_CHOOSER_ACTION_OPEN,
-                                     (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL,
-                                      gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-        dialog.set_default_response(gtk.RESPONSE_OK)
+                                     gtk.FileChooserAction.OPEN,
+                                     ("_Cancel", gtk.ResponseType.CANCEL,
+                                      "_Open", gtk.ResponseType.OK))
+        dialog.set_default_response(gtk.ResponseType.OK)
         
         directory = mFPH.getDirectory('workingDirectory', '', '', mode= 'read')
         dialog.set_current_folder(directory)
@@ -1917,9 +1912,9 @@ class Visualisation2DMain(Visualisation2DMainGUI):
         
         response = dialog.run()
         
-        if response == gtk.RESPONSE_OK:
+        if response == gtk.ResponseType.OK:
             filenames = dialog.get_filenames()
-        elif response == gtk.RESPONSE_CANCEL:
+        elif response == gtk.ResponseType.CANCEL:
             print('Closed, no files selected')
         dialog.destroy()    
         return filenames
