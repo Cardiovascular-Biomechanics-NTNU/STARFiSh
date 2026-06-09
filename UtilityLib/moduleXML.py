@@ -512,7 +512,7 @@ def loadNetworkFromXML(networkName ,
 
             elif xmlElementName == 'randomInputManager':
                 ## create random vector
-                xmlElementChildren = xmlElement.getchildren()
+                xmlElementChildren = list(xmlElement)
                 if len(xmlElementChildren) != 0:
                     randomInputManager = RandomInputManager()
                     vascularNetwork.randomInputManager = randomInputManager
@@ -520,7 +520,7 @@ def loadNetworkFromXML(networkName ,
 
             elif xmlElementName == 'measurementRoutine':
                 ## create measurementRoutine
-                xmlElementChildren = xmlElement.getchildren()
+                xmlElementChildren = list(xmlElement)
                 if len(xmlElementChildren) != 0:
                     measurmentRoutine = MeasurementRoutine()
                     vascularNetwork.measurementRoutine = measurmentRoutine

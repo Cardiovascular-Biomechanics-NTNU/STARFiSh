@@ -29,22 +29,25 @@ class PropertiesPanel(QtWidgets.QWidget):
         self.btn_add_root = QtWidgets.QPushButton("+   Add Root Node")
         self.btn_add_branch = QtWidgets.QPushButton("⎇   Add Branch")
         self.btn_delete = QtWidgets.QPushButton("Delete Selected")
-        self.btn_save_project = QtWidgets.QPushButton("Save")
-        self.btn_load_project = QtWidgets.QPushButton("Load")
+        self.btn_save_project = QtWidgets.QPushButton("Save Project")
+        self.btn_load_project = QtWidgets.QPushButton("Load Project")
+        self.btn_export_model = QtWidgets.QPushButton("Export Model")
         self.btn_add_root.setObjectName("btn_add_root")
         self.btn_add_branch.setObjectName("btn_add_branch")
         self.btn_delete.setObjectName("btn_delete")
         self.btn_save_project.setObjectName("btn_save_project")
         self.btn_load_project.setObjectName("btn_load_project")
+        self.btn_export_model.setObjectName("btn_export_model")
 
-        for button in (self.btn_add_root, self.btn_add_branch, self.btn_delete, self.btn_save_project, self.btn_load_project):
+        for button in (self.btn_add_root, self.btn_add_branch, self.btn_delete, self.btn_save_project, self.btn_load_project, self.btn_export_model):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             button.setMinimumHeight(42)
 
         self.btn_save_project.setIcon(self._standard_icon("SP_DialogSaveButton"))
+        self.btn_export_model.setIcon(self._standard_icon("SP_DialogSaveButton"))
         self.btn_load_project.setIcon(self._standard_icon("SP_DirOpenIcon"))
         self.btn_delete.setIcon(self._standard_icon("SP_TrashIcon", "SP_DialogDiscardButton"))
-        for button in (self.btn_delete, self.btn_save_project, self.btn_load_project):
+        for button in (self.btn_delete, self.btn_save_project, self.btn_load_project, self.btn_export_model):
             button.setIconSize(QtCore.QSize(18, 18))
 
         self.btn_add_root.setToolTip("Creates an unattached starting point.")
@@ -52,9 +55,11 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         project_actions = QtWidgets.QHBoxLayout()
         project_actions.setSpacing(8)
-        project_actions.addWidget(self.btn_save_project)
         project_actions.addWidget(self.btn_load_project)
+        project_actions.addWidget(self.btn_save_project)
         panel_layout.addLayout(project_actions)
+        
+        panel_layout.addWidget(self.btn_export_model)
 
         # 1. Tools Group
         tools_group = QtWidgets.QGroupBox("Network Builder Tools")
@@ -332,10 +337,10 @@ class PropertiesPanel(QtWidgets.QWidget):
             QPushButton#btn_add_root:hover, QPushButton#btn_add_branch:hover, QPushButton#btn_bc_add:hover {{
                 background-color: #30506f; border-color: #5d8dbb;
             }}
-            QPushButton#btn_save_project, QPushButton#btn_load_project {{
+            QPushButton#btn_save_project, QPushButton#btn_load_project, QPushButton#btn_export_model {{
                 background-color: #202326; border-color: #343b43;
             }}
-            QPushButton#btn_save_project:hover, QPushButton#btn_load_project:hover {{
+            QPushButton#btn_save_project:hover, QPushButton#btn_load_project:hover, QPushButton#btn_export_model:hover {{
                 background-color: #29313a; border-color: #4d5966;
             }}
             QPushButton#btn_delete, QPushButton#btn_bc_delete {{
@@ -981,7 +986,23 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
             return
         try:
-            subprocess.Popen([editor_path])
+            env = os.environ.copy()
+            # Suppress WSL GUI warnings and force software rendering if on WSL
+            is_wsl = False
+            try:
+                with open('/proc/version', 'r') as f:
+                    if 'microsoft' in f.read().lower():
+                        is_wsl = True
+            except Exception:
+                pass
+            
+            if is_wsl:
+                env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+                env["LIBGL_ALWAYS_SOFTWARE"] = "1"
+                env["GALLIUM_DRIVER"] = "llvmpipe"
+                env["QT_QPA_PLATFORM"] = "xcb"
+
+            subprocess.Popen([editor_path], env=env)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, 'Failed to Launch', str(exc))
 

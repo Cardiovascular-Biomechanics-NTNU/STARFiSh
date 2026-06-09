@@ -1183,3 +1183,401 @@ The first complete milestone is:
 ```
 
 Only after this should the C++ netlist wrapper become part of the run path.
+
+## Current Implementation Notes: Timestep, Lifecycle, and Outputs
+
+This section records the current state of the implementation after the first
+single-surface and multi-surface bridge work. It should be treated as the
+developer-facing reference for how the Python solver, Python coupling layer, and
+CRIMSON C++ netlist bridge currently communicate.
+
+### STARFiSh Timestep Policy
+
+STARFiSh currently uses one fixed solver timestep per simulation run. It does
+not recompute `dt` dynamically during the time loop.
+
+The timestep is selected once in `FlowSolver.initializeTimeVariables()`:
+
+```python
+dt = CFL * dz / c
+self.dt = min(dt_min)
+self.nTSteps = int(np.ceil(self.totalTime / self.dt))
+```
+
+The solve loop then advances with:
+
+```python
+for n in range(self.nTSteps):
+    ...
+```
+
+Therefore the current netlist coupling assumes:
+
+```text
+dt is fixed after solver initialization
+nTSteps is fixed after solver initialization
+all boundary objects receive the same dt for the full run
+```
+
+`automaticGridAdaptation` is separate from timestep adaptation. The solver has
+logic to evaluate and propose CFL-consistent grid corrections, but it does not
+perform runtime CFL-based `dt` adaptation. `minSaveDt` is also not a solver
+timestep control; it only controls the output save stride:
+
+```text
+nSaveSkip = ceil(minSaveDt / dt)
+saveDt    = nSaveSkip * dt
+```
+
+This fixed-`dt` behavior is important for CRIMSON netlist coupling because the
+CRIMSON netlist code was written around a fixed `delt` value.
+
+### Alpha and `alfi_delt`
+
+CRIMSON's netlist code receives two time-integration values:
+
+```text
+delt      = dt
+alfi      = generalized-alpha alpha_f weight
+alfi_delt = alfi * delt
+```
+
+The netlist uses `alfi_delt` when forming algebraic equations for dynamic
+components such as capacitors and inductors. For example, capacitor terms are
+scaled by the time discretization, so the value passed into
+`computeImplicitCoefficients()` directly affects `(dp_dq, Hop)`.
+
+STARFiSh is not a generalized-alpha solver. The active 1D solver path is an
+explicit MacCormack-style predictor/corrector method. For the current bridge we
+therefore use:
+
+```text
+alfi = 1.0
+alfi_delt = dt
+```
+
+This is closest to a backward-Euler-style interpretation on the netlist side and
+keeps the C++ bridge simple while STARFiSh owns the 1D explicit update.
+
+Current C++ bridge behavior:
+
+```cpp
+StarfishBridge(int hstep, double alfi, double delt)
+
+compute_implicit_coefficients(...):
+    alfi_delt = alfi * delt
+    NetlistCircuit::computeImplicitCoefficients(timestep, time, alfi_delt)
+
+compute_update_coefficients(...):
+    NetlistCircuit::computeImplicitCoefficients(timestep, time, delt)
+```
+
+The bridge currently enforces fixed `dt`:
+
+```text
+runtime dt must match the bridge construction delt
+```
+
+If STARFiSh later adds true adaptive timestep support, the netlist bridge will
+need either a safe way to rebuild/update CRIMSON's netlist timestep state or a
+clear policy that netlist-coupled runs must use fixed `dt`.
+
+### Current Per-Timestep Flowchart
+
+The current implementation mirrors CRIMSON's lifecycle as closely as possible
+without embedding CRIMSON's Fortran driver. STARFiSh owns the 1D solve order;
+the Python manager coordinates the global netlist state; the C++ bridge owns
+CRIMSON's `NetlistCircuit` objects.
+
+For every global timestep `n`:
+
+```text
+FlowSolver.MacCormack_Field()
+  |
+  |  fixed dt from FlowSolver.dt
+  v
+FlowSolver.startNetlistTimestep(n)
+  |
+  v
+NetworkLib.netlistManager.NetlistBoundaryManager.start_timestep(...)
+  |
+  v
+UtilityLib.crimsonNetlistAdapter.CrimsonNetlistAdapter.start_timestep(...)
+  |
+  v
+ext.StarfishBridge.start_timestep(...)
+  |
+  v
+for each registered C++ SurfaceState:
+  NetlistCircuit.initialiseAtStartOfTimestep()
+```
+
+Then STARFiSh loops through the numerical objects in tree order:
+
+```text
+for numericalObject in FlowSolver.numericalObjects:
+  numericalObject()
+```
+
+When a `_Netlist` boundary object is reached:
+
+```text
+classBoundaryConditions.Netlist
+  |
+  |  current P, Q, known omega, characteristic matrix R, n, dt
+  v
+NetworkLib.netlistInterface.NetlistBoundaryInterface.solve(...)
+  |
+  |  request affine pressure-flow law
+  v
+NetlistBoundaryManager.compute_coefficients(surfaceId, timestep, time, dt, P, Q)
+  |
+  v
+CrimsonNetlistAdapter.compute_implicit_coefficients(...)
+  |
+  v
+StarfishBridge.compute_implicit_coefficients(...)
+  |
+  v
+NetlistCircuit.computeImplicitCoefficients(...)
+  |
+  |  returns dp_dq, Hop
+  v
+NetlistBoundaryInterface solves unknown characteristic omega
+  |
+  |  P_new = dp_dq * Q_new + Hop
+  |  [dP, dQ]^T = R_char * [omega_known, omega_unknown]^T
+  v
+P^{n+1}, Q^{n+1}
+  |
+  v
+NetlistBoundaryManager.record_boundary_state(surfaceId, P_new, Q_new)
+```
+
+After every numerical object for the timestep has run:
+
+```text
+FlowSolver.finalizeNetlistTimestep(n)
+  |
+  v
+NetlistBoundaryManager.finalize_timestep(n)
+  |
+  |  for every pending real-netlist surface:
+  |    compute_update_coefficients(...)
+  |    adapter.update_state(surfaceId, P_final, Q_final)
+  |
+  v
+StarfishBridge.update_state(...)
+  |
+  v
+NetlistCircuit.updateLPN(timestep)
+  |
+  |  once all pending surfaces have been pushed:
+  v
+StarfishBridge.finalize_timestep(n)
+  |
+  v
+for each registered C++ SurfaceState:
+  NetlistCircuit.finalizeLPNAtEndOfTimestep()
+  NetlistCircuit.writePressuresFlowsAndVolumes(...)
+```
+
+This separation is deliberate:
+
+```text
+boundary solve:
+  compute final 1D interface P/Q for one surface
+
+manager finalization:
+  push all final interface P/Q values
+  advance/finalize the global netlist once
+```
+
+No individual boundary object should independently finalize the global CRIMSON
+netlist, because a case can contain multiple netlist surfaces.
+
+### Vessel and Surface Handling
+
+STARFiSh handles vessels in the normal tree traversal order. Each root boundary,
+field object, connection, distal boundary, communicator, and runtime memory
+object appears in `FlowSolver.numericalObjects`. Netlist coupling only changes
+what happens when one of those boundary objects is a `_Netlist`.
+
+For each `_Netlist` boundary:
+
+```text
+vesselId  -> STARFiSh vessel that owns this boundary
+position  -> start or end of the 1D vessel
+surfaceId -> STARFiSh-facing netlist surface label
+flowSign  -> sign conversion between STARFiSh Q and CRIMSON interface flow
+```
+
+The CRIMSON circuit file remains global:
+
+```text
+netlist_surfaces.xml
+```
+
+It must live next to STARFiSh `input.xml` in the case directory. STARFiSh does
+not parse the circuit topology. It only maps each 1D boundary to a surface id.
+
+The manager registers all real netlist-backed surfaces and passes the sorted
+surface ids to the C++ bridge. The bridge maps that sorted order to CRIMSON
+netlist circuit indices:
+
+```text
+sorted STARFiSh surfaceId -> CRIMSON netlist circuit index
+
+surfaceId 0 -> netlistIndex 0
+surfaceId 1 -> netlistIndex 1
+surfaceId 5 -> netlistIndex 2
+```
+
+Each C++ `SurfaceState` owns:
+
+```text
+pressure scalar
+flow scalar
+next_timestep_write_start
+NetlistCircuit
+```
+
+The pressure and flow scalar addresses are passed into CRIMSON so
+`NetlistCircuit` can read the current interface state in the same style as the
+original CRIMSON pointer-based coupling.
+
+Current multi-surface behavior is diagonal:
+
+```text
+P_i = dp_dq_i * Q_i + Hop_i
+```
+
+The first implementation does not assemble or expose a full cross-surface
+matrix:
+
+```text
+P_i = sum_j M_ij Q_j + S_i
+```
+
+That is a later extension if coupled netlists require off-diagonal interface
+terms.
+
+### Current File Responsibilities
+
+The current implementation has the following active flow:
+
+```text
+NetworkLib/classBoundaryConditions.py
+  Netlist Type 2 boundary condition.
+  Thin STARFiSh caller that receives XML values, sets position, and delegates
+  the characteristic solve.
+
+NetworkLib/netlistInterface.py
+  Mathematical 1D/netlist interface.
+  Solves the unknown characteristic from the affine CRIMSON law:
+      P = dp_dq * Q + Hop
+
+NetworkLib/netlistManager.py
+  Case-level netlist coordinator.
+  Registers surfaces, owns the global netlist file path, starts timesteps,
+  computes coefficients, records final P/Q states, and finalizes once.
+
+UtilityLib/crimsonNetlistAdapter.py
+  Thin Python wrapper over the compiled nanobind module.
+  No 1D math should live here.
+
+ext/StarfishBridge.cpp
+  C++ bridge that owns CRIMSON NetlistCircuit instances.
+  Handles surface registration, start/update/finalize lifecycle calls, and
+  pressure/flow/volume output writing.
+
+ext/bindings.cpp
+  Nanobind exposure of StarfishBridge as crimson_starfish_bridge.CrimsonBridge.
+
+solver.py
+  External case runner.
+  Creates results/SolutionData_<number> and tells the netlist manager to write
+  CRIMSON netlist history files there.
+```
+
+### Netlist Output Files
+
+CRIMSON's netlist writer emits pressure, flow, and volume history files:
+
+```text
+netlistFlows_surface_<surfaceId>.dat
+netlistPressures_surface_<surfaceId>.dat
+netlistVolumes_surface_<surfaceId>.dat
+```
+
+The bridge now calls:
+
+```cpp
+NetlistCircuit::writePressuresFlowsAndVolumes(next_timestep_write_start)
+```
+
+during `StarfishBridge.finalize_timestep(...)`.
+
+Because CRIMSON writes these files using relative paths, `solver.py` passes the
+current STARFiSh solution directory into the netlist manager:
+
+```text
+results/SolutionData_<number>/
+```
+
+The path is forwarded through:
+
+```text
+solver.py
+  -> NetlistBoundaryManager.set_output_directory(...)
+  -> CrimsonNetlistAdapter.set_output_directory(...)
+  -> StarfishBridge.set_output_directory(...)
+```
+
+During netlist output writing, the bridge temporarily writes from that solution
+directory and then restores the previous working directory. This keeps the
+CRIMSON netlist outputs beside the STARFiSh HDF5/XML outputs:
+
+```text
+results/SolutionData_001/
+  vascularNetwork_SolutionData_001.hdf5
+  vascularNetwork_SolutionData_001.xml
+  netlistFlows_surface_0.dat
+  netlistPressures_surface_0.dat
+  netlistVolumes_surface_0.dat
+  ...
+```
+
+For resistor-only circuits, the volume files may contain only the timestep
+column because there are no capacitor/volume-tracking components in that branch.
+
+### Current Fixed-Dt Constraint for Streaming and Netlist Runs
+
+For streaming or coupled CRIMSON netlist operation, the current practical rule
+is:
+
+```text
+choose the STARFiSh grid/CFL so the initialized dt is the dt you want,
+then keep that dt fixed for the full run.
+```
+
+The current bridge intentionally checks that every runtime `dt` equals the
+construction `delt`. This makes mismatches obvious and avoids silently advancing
+CRIMSON's netlist histories with inconsistent timestep assumptions.
+
+If a future workflow needs exact user-prescribed `dt`, the clean extension is to
+add an explicit STARFiSh input field such as:
+
+```xml
+<fixedDt unit="s">...</fixedDt>
+```
+
+or:
+
+```xml
+<timeStep unit="s">...</timeStep>
+```
+
+and make `FlowSolver.initializeTimeVariables()` use that value instead of
+deriving `dt` only from CFL. That is a separate feature from runtime adaptive
+`dt`.

@@ -106,23 +106,23 @@ Run:
 From the NetlistEditor directory:
 
 ```bash
-cd /home/sadid/crimson/cr_gui/crimson_gui_private/Apps/NetlistEditor
-cmake -S . -B build-qt6-linux \
+cd /home/sadid/starfish/NetlistEditor
+cmake -S . -B build-qt6-linux-starfish \
   -DNETLISTEDITOR_USE_QT6=ON \
   -DCMAKE_PREFIX_PATH=/usr/local/qwt-6.3.0
-cmake --build build-qt6-linux -j
+cmake --build build-qt6-linux-starfish -j
 ```
 
 Run:
 
 ```bash
-./build-qt6-linux/bin/CRIMSONBCT
+./build-qt6-linux-starfish/bin/CRIMSONBCT
 ```
 
 Verify Qt 6 linkage:
 
 ```bash
-ldd build-qt6-linux/bin/CRIMSONBCT | grep -E 'Qt6|qwt'
+ldd build-qt6-linux-starfish/bin/CRIMSONBCT | grep -E 'Qt6|qwt'
 ```
 
 Expected output includes:

@@ -19,6 +19,26 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.scene.setSceneRect(-800, -800, 1600, 1600)
         self.view.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
 
+        # Zoom buttons
+        zoom_layout = QtWidgets.QHBoxLayout()
+        self.btn_zoom_in = QtWidgets.QPushButton("Zoom In")
+        self.btn_zoom_out = QtWidgets.QPushButton("Zoom Out")
+        self.btn_fit_screen = QtWidgets.QPushButton("Fit to Screen")
+        zoom_layout.addWidget(self.btn_zoom_in)
+        zoom_layout.addWidget(self.btn_zoom_out)
+        zoom_layout.addWidget(self.btn_fit_screen)
+        zoom_layout.addStretch()
+
+        self.btn_zoom_in.clicked.connect(self.zoom_in)
+        self.btn_zoom_out.clicked.connect(self.zoom_out)
+        self.btn_fit_screen.clicked.connect(self.fit_to_screen)
+
+        view_container = QtWidgets.QWidget()
+        view_layout = QtWidgets.QVBoxLayout(view_container)
+        view_layout.setContentsMargins(0, 0, 0, 0)
+        view_layout.addLayout(zoom_layout)
+        view_layout.addWidget(self.view)
+
         # Use a QSplitter for the model builder layout and a scroll area for the right panel
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         self.prop_panel = PropertiesPanel(self.scene)
@@ -27,7 +47,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.prop_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.prop_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         self.prop_scroll.setWidget(self.prop_panel)
-        splitter.addWidget(self.view)
+        splitter.addWidget(view_container)
         splitter.addWidget(self.prop_scroll)
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 1)
@@ -39,8 +59,8 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.prop_panel.btn_add_root.clicked.connect(self.add_root)
         self.prop_panel.btn_add_branch.clicked.connect(self.add_branch)
         self.prop_panel.btn_delete.clicked.connect(self.delete_selected)
-        # connect project import/export to editor-level handlers
-        self.prop_panel.btn_save_project.clicked.connect(self.export_network_xml)
+        self.prop_panel.btn_save_project.clicked.connect(lambda: self.export_network_xml(export_layout=True))
+        self.prop_panel.btn_export_model.clicked.connect(lambda: self.export_network_xml(export_layout=False))
         self.prop_panel.btn_load_project.clicked.connect(self.import_network_xml)
 
         # Tabs for model builder and visualization
@@ -54,31 +74,36 @@ class VascularEditorWidget(QtWidgets.QWidget):
         model_layout.addWidget(splitter)
         self.tabs.addTab(model_tab, "Model Parameters & Builder")
 
+        # Add 3D Slicer Launcher Tab before result visualization.
+        from vnc_ui.slicer_panel import SlicerLauncherPanel
+        self.slicer_tab = SlicerLauncherPanel()
+        self.tabs.addTab(self.slicer_tab, "3D Slicer Integration")
+
         if self._enable_visualization_tab:
             visualization_tab = QtWidgets.QWidget()
             visualization_layout = QtWidgets.QVBoxLayout(visualization_tab)
             visualization_layout.setContentsMargins(12, 12, 12, 12)
             visualization_layout.setSpacing(12)
 
-            visualization_title = QtWidgets.QLabel("2D Visualization")
+            visualization_title = QtWidgets.QLabel("Result Visualization")
             visualization_title.setStyleSheet("font-size: 18px; font-weight: bold;")
 
             visualization_note = QtWidgets.QLabel(
                 "Launches the GTK-based 2D visualization in a separate window. "
-                "This keeps the Qt editor responsive while the plot UI runs."
+                "Only works on Linux with GTK dependencies installed."
             )
             visualization_note.setWordWrap(True)
 
-            self.btn_open_visualization = QtWidgets.QPushButton("Open 2D Visualization")
-            self.btn_open_visualization.clicked.connect(self.launch_visualization)
-            self.btn_open_visualization.setFixedWidth(220)
+            self.btn_run_visualizer = QtWidgets.QPushButton("Launch 2D Visualizer")
+            self.btn_run_visualizer.setFixedSize(200, 40)
+            self.btn_run_visualizer.clicked.connect(self.launch_visualization)
 
             visualization_layout.addWidget(visualization_title)
             visualization_layout.addWidget(visualization_note)
-            visualization_layout.addWidget(self.btn_open_visualization)
-            visualization_layout.addStretch(1)
+            visualization_layout.addWidget(self.btn_run_visualizer)
+            visualization_layout.addStretch()
 
-            self.tabs.addTab(visualization_tab, "Visualization")
+            self.tabs.addTab(visualization_tab, "Result Visualization")
         else:
             self.btn_open_visualization = None
 
@@ -88,6 +113,21 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         self.node_count = 0
         self.edge_count = 0
+
+    def zoom_in(self):
+        self.view.scale(1.2, 1.2)
+
+    def zoom_out(self):
+        self.view.scale(1 / 1.2, 1 / 1.2)
+
+    def fit_to_screen(self):
+        rect = self.scene.itemsBoundingRect()
+        if rect.isEmpty():
+            rect = self.scene.sceneRect()
+        # Add a small margin so items aren't touching the exact edge
+        margin = 50
+        rect.adjust(-margin, -margin, margin, margin)
+        self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
 
     def launch_visualization(self):
         script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualization_2d.py"))
@@ -189,17 +229,57 @@ class VascularEditorWidget(QtWidgets.QWidget):
     # --- Network import/export (full STARFiSh XML) ---
     def import_network_xml(self):
         from UtilityLib import moduleXML as mXML
+        import json
+        import tempfile
 
-        fname, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import Network XML", "", "XML Files (*.xml)")
+        fname, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import Network/Project", "", "STARFiSh Project/XML (*.starproj *.xml)")
         if not fname:
             return
-        # networkName used for loading (moduleXML expects a name)
-        networkName = os.path.splitext(os.path.basename(fname))[0]
+
+        layout_data = None
+        xml_file_to_load = fname
+
+        # Handle .starproj container format
+        temp_xml_file = None
+        if fname.endswith('.starproj'):
+            try:
+                with open(fname, 'r') as f:
+                    project_data = json.load(f)
+                layout_data = project_data.get('layout')
+                xml_content = project_data.get('xml')
+                
+                # Write embedded XML to a temporary file so moduleXML can parse it
+                temp_xml_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xml')
+                temp_xml_file.write(xml_content.encode('utf-8'))
+                temp_xml_file.close()
+                xml_file_to_load = temp_xml_file.name
+                networkName = os.path.splitext(os.path.basename(fname))[0]
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to load .starproj file: {e}')
+                return
+        else:
+            # Fallback for loading raw .xml with optional legacy _layout.json
+            networkName = os.path.splitext(os.path.basename(fname))[0]
+            layout_fname = fname.replace('.xml', '_layout.json')
+            if not layout_fname.endswith('_layout.json'):
+                layout_fname += '_layout.json'
+            if os.path.exists(layout_fname):
+                try:
+                    with open(layout_fname, 'r') as f:
+                        layout_data = json.load(f)
+                except Exception:
+                    pass
+
         try:
-            vascularNetwork = mXML.loadNetworkFromXML(networkName, networkXmlFile=fname)
+            vascularNetwork = mXML.loadNetworkFromXML(networkName, networkXmlFile=xml_file_to_load)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to load network: {e}')
+            if temp_xml_file:
+                os.unlink(temp_xml_file.name)
             return
+
+        if temp_xml_file:
+            os.unlink(temp_xml_file.name)
 
         # prepare network topology
         try:
@@ -219,6 +299,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         # create scene nodes for each unique node id
         node_map = {}
+        scene_node_by_name = {}
         nodes_ids = set()
         for vessel in vascularNetwork.vessels.values():
             if hasattr(vessel, 'startNode') and vessel.startNode is not None:
@@ -226,28 +307,42 @@ class VascularEditorWidget(QtWidgets.QWidget):
             if hasattr(vessel, 'endNode') and vessel.endNode is not None:
                 nodes_ids.add(vessel.endNode)
 
-        # position nodes on a circle for initial layout
-        nodes_list = sorted(list(nodes_ids))
-        n = len(nodes_list) if nodes_list else 1
-        for i, nid in enumerate(nodes_list):
-            angle = 2.0 * math.pi * i / n
-            x = math.cos(angle) * 200
-            y = math.sin(angle) * 200
-            node = JunctionNode(f"Node {nid}")
-            node.setPos(x, y)
-            self.scene.addItem(node)
-            node_map[nid] = node
+        if layout_data:
+            for n_data in layout_data.get('nodes', []):
+                node = JunctionNode(n_data['name'])
+                node.setPos(n_data.get('x', 0), n_data.get('y', 0))
+                self.scene.addItem(node)
+                scene_node_by_name[n_data['name']] = node
+        else:
+            # position nodes on a circle for initial layout
+            nodes_list = sorted(list(nodes_ids))
+            n = len(nodes_list) if nodes_list else 1
+            for i, nid in enumerate(nodes_list):
+                angle = 2.0 * math.pi * i / n
+                x = math.cos(angle) * 200
+                y = math.sin(angle) * 200
+                node = JunctionNode(f"Node {nid}")
+                node.setPos(x, y)
+                self.scene.addItem(node)
+                node_map[nid] = node
 
         # create vessel edges
         edge_map = {}
         for vessel in vascularNetwork.vessels.values():
             # find start/end node objects
-            try:
-                s = node_map.get(vessel.startNode, None)
-                e = node_map.get(vessel.endNode, None)
-            except Exception:
-                s = None
-                e = None
+            s = None
+            e = None
+            if layout_data:
+                e_data = next((ed for ed in layout_data.get('edges', []) if ed.get('vessel_id') == vessel.Id), None)
+                if e_data:
+                    s = scene_node_by_name.get(e_data.get('source_node_name'))
+                    e = scene_node_by_name.get(e_data.get('dest_node_name'))
+            else:
+                try:
+                    s = node_map.get(vessel.startNode, None)
+                    e = node_map.get(vessel.endNode, None)
+                except Exception:
+                    pass
             if s is None:
                 s = JunctionNode(f"start_{vessel.Id}")
                 s.setPos(0, -200)
@@ -328,12 +423,23 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.scene.enforce_fixed_lengths()
         QtWidgets.QMessageBox.information(self, 'Imported', f'Imported network from {fname}')
 
-    def export_network_xml(self):
+    def export_network_xml(self, export_layout=True):
         from UtilityLib import moduleXML as mXML
         import NetworkLib.classVascularNetwork as cVascNw
+        import json
+        import tempfile
 
         # export full vascularNetwork XML from current scene
-        fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export Network XML", "input.xml", "XML Files (*.xml)")
+        if export_layout:
+            title = "Save Project (.starproj)"
+            file_filter = "STARFiSh Project Files (*.starproj)"
+            default_name = "project.starproj"
+        else:
+            title = "Export Model XML"
+            file_filter = "XML Files (*.xml)"
+            default_name = "input.xml"
+
+        fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, title, default_name, file_filter)
         if not fname:
             return False
         case_dir = os.path.dirname(os.path.abspath(fname))
@@ -374,6 +480,32 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         # construct vascularNetwork
         vascularNetwork = cVascNw.VascularNetwork()
+        
+        # Apply requested defaults for the top portion of input.xml
+        vascularNetwork.totalTime = 1.0
+        vascularNetwork.CFL = 0.5
+        vascularNetwork.timeSaveBegin = 0.0
+        vascularNetwork.minSaveDt = -1.0
+        vascularNetwork.maxMemory = 5000.0
+        vascularNetwork.gravitationalField = False
+        vascularNetwork.gravityConstant = -9.81
+        
+        vascularNetwork.solvingSchemeField = 'MacCormack_Flux'
+        vascularNetwork.rigidAreas = False
+        vascularNetwork.simplifyEigenvalues = False
+        vascularNetwork.riemannInvariantUnitBase = 'Pressure'
+        vascularNetwork.automaticGridAdaptation = True
+        
+        vascularNetwork.initialsationMethod = 'Auto'
+        vascularNetwork.initMeanFlow = 0.0
+        vascularNetwork.initMeanPressure = 10000.0
+        vascularNetwork.estimateWindkesselCompliance = 'No'
+        vascularNetwork.compPercentageWK3 = 0.2
+        vascularNetwork.compPercentageTree = 0.8
+        vascularNetwork.compTotalSys = 4.895587352e-08
+        
+        vascularNetwork.globalFluid = {'my': 0.004, 'rho': 1040.0, 'gamma': 2.0}
+
         vesselData = {}
         # build vessel data entries
         for e, vid in id_map.items():
@@ -498,23 +630,69 @@ class VascularEditorWidget(QtWidgets.QWidget):
         for vid, bcs in boundary_by_vessel.items():
             vascularNetwork.boundaryConditions[vid] = list(bcs)
 
-        # write XML
-        try:
-            mXML.writeNetworkToXML(vascularNetwork, dataNumber='xxx', networkXmlFile=fname)
-            exported_files = ['input XML: {}'.format(fname)]
-            if netlist_map_rows:
-                from UtilityLib import netlistSurfaceBuilder as nls_builder
+        # layout serialization
+        layout_data = {
+            'nodes': [],
+            'edges': []
+        }
+        for item in self.scene.items():
+            if isinstance(item, JunctionNode):
+                layout_data['nodes'].append({
+                    'name': item.name,
+                    'x': item.x(),
+                    'y': item.y()
+                })
+            elif isinstance(item, VesselEdge):
+                layout_data['edges'].append({
+                    'name': item.name,
+                    'vessel_id': id_map.get(item, None),
+                    'source_node_name': item.source_node.name if item.source_node else None,
+                    'dest_node_name': item.dest_node.name if item.dest_node else None,
+                })
 
-                map_file = os.path.join(case_dir, 'netlist_map.csv')
-                netlist_file = os.path.join(case_dir, 'netlist_surfaces.xml')
-                nls_builder.write_netlist_map(netlist_map_rows, map_file)
-                nls_builder.build_netlist_surfaces(netlist_map_rows, netlist_file, base_dir=case_dir)
-                exported_files.append('netlist map: {}'.format(map_file))
-                exported_files.append('netlist XML: {}'.format(netlist_file))
-            QtWidgets.QMessageBox.information(self, 'Exported', 'Exported:\n{}'.format('\n'.join(exported_files)))
-            return True
+        # write XML/JSON depending on mode
+        try:
+            if export_layout:
+                # Save into a .starproj container (JSON wrapping layout and XML)
+                temp_xml_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xml')
+                temp_xml_file.close()
+                mXML.writeNetworkToXML(vascularNetwork, dataNumber='xxx', networkXmlFile=temp_xml_file.name)
+                
+                with open(temp_xml_file.name, 'r') as f:
+                    xml_content = f.read()
+                os.unlink(temp_xml_file.name)
+                
+                project_data = {
+                    'layout': layout_data,
+                    'xml': xml_content
+                }
+                
+                if not fname.endswith('.starproj'):
+                    fname += '.starproj'
+                    
+                with open(fname, 'w') as f:
+                    json.dump(project_data, f, indent=4)
+                    
+                QtWidgets.QMessageBox.information(self, 'Exported', f'Project saved to:\n{fname}')
+                return True
+            else:
+                # Export raw XML Model
+                mXML.writeNetworkToXML(vascularNetwork, dataNumber='xxx', networkXmlFile=fname)
+                exported_files = [f'input XML: {fname}']
+                
+                if netlist_map_rows:
+                    from UtilityLib import netlistSurfaceBuilder as nls_builder
+
+                    map_file = os.path.join(case_dir, 'netlist_map.csv')
+                    netlist_file = os.path.join(case_dir, 'netlist_surfaces.xml')
+                    nls_builder.write_netlist_map(netlist_map_rows, map_file)
+                    nls_builder.build_netlist_surfaces(netlist_map_rows, netlist_file, base_dir=case_dir)
+                    exported_files.append(f'netlist map: {map_file}')
+                    exported_files.append(f'netlist XML: {netlist_file}')
+                QtWidgets.QMessageBox.information(self, 'Exported', 'Exported:\n{}'.format('\n'.join(exported_files)))
+                return True
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to write network XML: {e}')
+            QtWidgets.QMessageBox.critical(self, 'Error', f'Failed to export network: {e}')
             return False
 
 
@@ -541,12 +719,14 @@ class VascularEditor(QtWidgets.QMainWindow):
 
         if choice == save:
             if self.editor_widget.export_network_xml():
+                self.editor_widget.slicer_tab.close_slicer()
                 event.accept()
             else:
                 event.ignore()
             return
 
         if choice == discard:
+            self.editor_widget.slicer_tab.close_slicer()
             event.accept()
             return
 

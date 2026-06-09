@@ -86,6 +86,28 @@ def _write_description_index(results_dir, data_number, description):
         handle.writelines(lines)
 
 
+def _clear_netlist_history_outputs(solution_dir):
+    """
+    Remove CRIMSON netlist history files from a previous run.
+
+    CRIMSON appends to its relative output files, so rerunning the same
+    SolutionData_<n> directory without clearing these files creates repeated
+    timestep blocks and artificial zero drops in plots.
+    """
+    prefixes = (
+        "netlistFlows_surface_",
+        "netlistPressures_surface_",
+        "netlistVolumes_surface_",
+    )
+    if not os.path.isdir(solution_dir):
+        return
+    for file_name in os.listdir(solution_dir):
+        if not file_name.endswith(".dat"):
+            continue
+        if any(file_name.startswith(prefix) for prefix in prefixes):
+            os.remove(os.path.join(solution_dir, file_name))
+
+
 def run_case(input_xml, output_dir, output_prefix, data_number, description, export_ascii=False, ascii_dir=None):
     import SolverLib.class1DflowSolver as c1DFlowSolv
     from NetworkLib.netlistManager import get_default_netlist_manager
@@ -106,6 +128,7 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
     output_hdf5 = os.path.join(solution_dir, "{}.hdf5".format(output_prefix))
     output_xml = os.path.join(solution_dir, "{}.xml".format(output_prefix))
     _write_description_index(results_dir, data_number, description)
+    _clear_netlist_history_outputs(solution_dir)
     get_default_netlist_manager().set_output_directory(solution_dir)
 
     logger.info("____________Simulation_______________")
