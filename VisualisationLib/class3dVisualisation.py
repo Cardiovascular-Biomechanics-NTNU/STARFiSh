@@ -15,9 +15,9 @@ import UtilityLib.processing as mProc
 #from NetworkLib.classVascularNetwork import VascularNetwork
 from NetworkLib.classVessel import Vessel
 
-from . import class3dLUT as c3dLUT
+import VisualisationLib.class3dLUT as c3dLUT
 
-from . import class3dControlGUI as c3dCtrlGUI
+import VisualisationLib.class3dControlGUI as c3dCtrlGUI
 
 import numpy as np
 from math  import *
@@ -28,9 +28,15 @@ from OpenGL.GLUT import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
+import locale
+locale.setlocale(locale.LC_ALL, "C.UTF-8")
+
+
 import pyglet
+pyglet.options["shadow_window"] = False
+
+
 from pyglet.gl import *
-from pyglet import *
 from pyglet.window import mouse, key
 from pyglet.window.key import MOTION_UP,MOTION_DOWN
 
@@ -52,13 +58,15 @@ class Visualisation3DGUI(pyglet.window.Window):
         samples         = 4
         sample_buffers  = 1
 
-        if hasattr(pyglet.window, 'get_platform'):
+        if hasattr(pyglet.window, "get_platform"):
             platform = pyglet.window.get_platform()
             display = platform.get_default_display()
         else:
-            display = pyglet.display.get_display()
+            display = pyglet.canvas.get_display()
+
         screen = display.get_default_screen()
 
+        
         templateHigh = pyglet.gl.Config(sample_buffers=sample_buffers,
                                     samples = samples,
                                     double_buffer=True,
@@ -83,7 +91,15 @@ class Visualisation3DGUI(pyglet.window.Window):
 
         context = config.create_context(None)
 
-        super(Visualisation3DGUI, self).__init__(resizable = True, context = context)
+        super(Visualisation3DGUI, self).__init__(
+            width=800,
+            height=600,
+            caption="STARFiSh 3D",
+            resizable=True,
+            context=context,
+        )
+
+        
 
         self.set_maximum_size(screen.width, screen.height)
         self.set_minimum_size(self.width, self.height)

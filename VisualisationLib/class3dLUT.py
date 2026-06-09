@@ -17,9 +17,12 @@ from OpenGL.GLUT import *
 from OpenGL.GL import *
 from OpenGL.GLU import * 
 
+
 import pyglet
+pyglet.options["shadow_window"] = False
+
 from pyglet.gl import *
-from pyglet import *
+
 from pyglet.window import mouse, key
 from pyglet.window.key import MOTION_UP,MOTION_DOWN
 
