@@ -2,3 +2,28 @@
 *__pycache__/
 examples/
 
+# Python artifacts
+*.py[cod]
+*$py.class
+
+# Logs and temporary output
+*.log
+LOG*.txt
+histor.log
+starfish.log
+
+# Temporary XML files created during testing
+tmp*.xml
+
+# Editor / workspace files
+.vscode/
+
+# Other generated files
+.realtimeWrite0.viz
+
+# Local build/test artifacts
+Miniforge3-Linux-aarch64.sh
+requirements_adds.txt
+VascularPolynomialChaosLib/#tmp.py#
+VascularPolynomialChaosLib/tmp
+
