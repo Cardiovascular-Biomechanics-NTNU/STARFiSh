@@ -31,22 +31,20 @@ import colorsys
 import time
 import re
 
-try:
-    import gobject
-    import gtk
-    import gtk.gdk
-    import gtk.keysyms
-except ImportError:
-    from gi import pygtkcompat
-    pygtkcompat.enable()
-    pygtkcompat.enable_gtk(version='3.0')
-    import gobject
-    import gtk
-    import gtk.gdk
-    import gtk.keysyms
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("Pango", "1.0")
+gi.require_version("PangoCairo", "1.0")
+
+from gi.repository import GObject as gobject
+from gi.repository import Gtk as gtk
+from gi.repository import Gdk
+from gi.repository import Pango
+from gi.repository import PangoCairo
+
 import cairo
-import pango
-import pangocairo
 
 from pprint import pprint as pp
 
@@ -1366,17 +1364,17 @@ class NullAction(DragAction):
         if item is None:
             item = dot_widget.get_jump(x, y)
         if item is not None:
-            dot_widget.window.set_cursor(gtk.gdk.Cursor(gtk.gdk.HAND2))
+            dot_widget.window.set_cursor(Gdk.EventMask.Cursor(Gdk.EventMask.HAND2))
             dot_widget.set_highlight(item.highlight)
         else:
-            dot_widget.window.set_cursor(gtk.gdk.Cursor(gtk.gdk.ARROW))
+            dot_widget.window.set_cursor(Gdk.EventMask.Cursor(Gdk.EventMask.ARROW))
             dot_widget.set_highlight(None)
 
 
 class PanAction(DragAction):
 
     def start(self):
-        self.dot_widget.window.set_cursor(gtk.gdk.Cursor(gtk.gdk.FLEUR))
+        self.dot_widget.window.set_cursor(gtk.gdk.Cursor(Gdk.EventMask.FLEUR))
 
     def drag(self, deltax, deltay):
         self.dot_widget.x += deltax / self.dot_widget.zoom_ratio
@@ -1384,7 +1382,7 @@ class PanAction(DragAction):
         self.dot_widget.queue_draw()
 
     def stop(self):
-        self.dot_widget.window.set_cursor(gtk.gdk.Cursor(gtk.gdk.ARROW))
+        self.dot_widget.window.set_cursor(gtk.gdk.Cursor(Gdk.EventMask.ARROW))
 
     abort = stop
 
@@ -1435,7 +1433,7 @@ class DotWidget(gtk.DrawingArea):
     """PyGTK widget that draws dot graphs."""
 
     __gsignals__ = {
-        'clicked' : (gobject.SIGNAL_RUN_LAST, gobject.TYPE_NONE, (gobject.TYPE_STRING, gtk.gdk.Event))
+        'clicked' : (gobject.SIGNAL_RUN_LAST, gobject.TYPE_NONE, (gobject.TYPE_STRING, Gdk.Event))
     }
 
     filter = 'dot'
@@ -1451,10 +1449,10 @@ class DotWidget(gtk.DrawingArea):
         else:
             self.set_can_focus(True)
 
-        self.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK)
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
         self.connect("button-press-event", self.on_area_button_press)
         self.connect("button-release-event", self.on_area_button_release)
-        self.add_events(gtk.gdk.POINTER_MOTION_MASK | gtk.gdk.POINTER_MOTION_HINT_MASK | gtk.gdk.BUTTON_RELEASE_MASK)
+        self.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.POINTER_MOTION_HINT_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
         self.connect("motion-notify-event", self.on_area_motion_notify)
         self.connect("scroll-event", self.on_area_scroll_event)
         self.connect("size-allocate", self.on_area_size_allocate)
@@ -1507,6 +1505,7 @@ class DotWidget(gtk.DrawingArea):
         return xdotcode
 
     def set_dotcode(self, dotcode, filename=None):
+        print("DEBUG set_dotcode called, length:", len(dotcode)) # for debug
         self.openfilename = None
         if isinstance(dotcode, bytes):
             dotcode = dotcode.decode('utf8')
@@ -1702,9 +1701,9 @@ class DotWidget(gtk.DrawingArea):
     def get_drag_action(self, event):
         state = event.state
         if event.button in (1, 2): # left or middle button
-            if state & gtk.gdk.CONTROL_MASK:
+            if state & Gdk.EventMask.CONTROL_MASK:
                 return ZoomAction
-            elif state & gtk.gdk.SHIFT_MASK:
+            elif state & Gdk.EventMask.SHIFT_MASK:
                 return ZoomAreaAction
             else:
                 return PanAction
@@ -1722,7 +1721,7 @@ class DotWidget(gtk.DrawingArea):
         return False
 
     def is_click(self, event, click_fuzz=4, click_timeout=1.0):
-        assert event.type == gtk.gdk.BUTTON_RELEASE
+        assert event.type == Gdk.EventMask.BUTTON_RELEASE
         if self.presstime is None:
             # got a button release without seeing the press?
             return False
@@ -1852,11 +1851,11 @@ class DotWidget(gtk.DrawingArea):
         return False
 
     def on_area_scroll_event(self, area, event):
-        if event.direction == gtk.gdk.SCROLL_UP:
+        if event.direction == Gdk.EventMask.SCROLL_UP:
             self.zoom_image(self.zoom_ratio * self.ZOOM_INCREMENT,
                             pos=(event.x, event.y))
             return True
-        if event.direction == gtk.gdk.SCROLL_DOWN:
+        if event.direction == Gdk.EventMask.SCROLL_DOWN:
             self.zoom_image(self.zoom_ratio / self.ZOOM_INCREMENT,
                             pos=(event.x, event.y))
             return True
@@ -1957,9 +1956,9 @@ class DotWindow(gtk.Window):
 
         # Create a Toolbar
         toolbar = uimanager.get_widget('/ToolBar')
-        vbox.pack_start(toolbar, False)
+        vbox.pack_start(toolbar, False, False, 0)
 
-        vbox.pack_start(self.dot_widget)
+        vbox.pack_start(self.dot_widget, True, True, 0)
 
         self.set_focus(self.dot_widget)
 
@@ -1969,6 +1968,7 @@ class DotWindow(gtk.Window):
         self.dot_widget.set_filter(filter)
 
     def set_dotcode(self, dotcode, filename=None):
+        print("DEBUG DotWindow.set_dotcode called, length:", len(dotcode))
         if self.dot_widget.set_dotcode(dotcode, filename):
             self.update_title(filename)
             self.dot_widget.zoom_to_fit()

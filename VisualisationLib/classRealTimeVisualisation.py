@@ -1,10 +1,80 @@
-import gtk
-import gobject
+try:
+    import gtk
+    import gobject
+except Exception:
+    try:
+        import gi
+        gi.require_version('Gtk', '3.0')
+        gi.require_version('GObject', '2.0')
+        from gi.repository import Gtk as gtk
+        from gi.repository import GObject as gobject
+        if not hasattr(gtk, 'WIN_POS_CENTER') and hasattr(gtk, 'WindowPosition'):
+            gtk.WIN_POS_CENTER = gtk.WindowPosition.CENTER
+        # Compatibility wrappers for GTK3 when code uses old GTK2 constructors.
+        class _VBox(gtk.Box):
+            def __init__(self, homogeneous=False, spacing=0):
+                super().__init__(orientation=gtk.Orientation.VERTICAL, spacing=spacing)
+            def pack_start(self, child, expand=True, fill=True, padding=0):
+                super().pack_start(child, expand, fill, padding)
+        gtk.VBox = _VBox
+        class _Alignment(gtk.Alignment):
+            def __init__(self, xalign=0, yalign=0, xscale=1, yscale=1):
+                super().__init__()
+                try:
+                    self.set(xalign, yalign, xscale, yscale)
+                except Exception:
+                    pass
+        gtk.Alignment = _Alignment
+    except Exception:
+        # Provide lightweight stubs so the module can be imported on systems
+        # without GTK. This disables realtime visualisation but avoids
+        # import-time crashes elsewhere in the program.
+        class _DummyWindow:
+            def __init__(self, *args, **kwargs):
+                pass
+            def set_size_request(self, *a, **k):
+                pass
+            def set_position(self, *a, **k):
+                pass
+            def connect(self, *a, **k):
+                pass
+            def add(self, *a, **k):
+                pass
+            def show_all(self, *a, **k):
+                pass
+
+        class _DummyGtkModule:
+            Window = _DummyWindow
+            WIN_POS_CENTER = 0
+            VBox = object
+            Alignment = object
+            def main_quit(self, *a, **k):
+                return None
+
+        class _DummyGObject:
+            @staticmethod
+            def timeout_add(*a, **k):
+                return False
+
+        gtk = _DummyGtkModule()
+        gobject = _DummyGObject()
 from optparse import OptionParser
 from matplotlib.figure import Figure
-# uncomment to select /GTK/GTKAgg/GTKCairo
-#from matplotlib.backends.backend_gtk import FigureCanvasGTK as FigureCanvas
-from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
+# Select a suitable FigureCanvas backend. Try GTK backends first, then
+# fall back to the non-interactive Agg backend so the module can be
+# imported on headless systems.
+CANVAS_IS_GTK = True
+try:
+    # GTK2 agg backend (older matplotlib)
+    from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
+except Exception:
+    try:
+        # GTK3 backend
+        from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+    except Exception:
+        # Fallback: Agg (non-GUI)
+        from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+        CANVAS_IS_GTK = False
 import numpy as np
 import os
 cur = os.path.dirname( os.path.realpath( __file__ ) )

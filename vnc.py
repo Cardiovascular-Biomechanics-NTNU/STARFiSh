@@ -29,13 +29,12 @@ import UtilityLib.moduleStartUp as mStartUp
 
 import pydot
 from VncLib import xdot
-try:
-    import gtk
-except ImportError:
-    from gi import pygtkcompat
-    pygtkcompat.enable()
-    pygtkcompat.enable_gtk(version='3.0')
-    import gtk
+
+import gi
+gi.require_version("Gtk", "3.0")
+
+from gi.repository import Gtk as gtk
+from gi.repository import GObject as gobject
 
 from VncLib.classGraph import Graph
 from VncLib.classGraph import MyDotWindow
@@ -45,7 +44,6 @@ import pprint as pprint
 import numpy as np
 import _thread
 from copy import deepcopy
-
 
 def enterNetworkName(networkName, recentNetworkNames = None):
     """
@@ -281,6 +279,10 @@ def main():
                 vascularNetwork.updateNetwork({'vesselData':  { vesselId : vesselData}})
             
             mainGraph.update_graph(vascularNetwork, window)
+
+            
+            while gtk.events_pending():
+                gtk.main_iteration_do(False)
                     
         if menuInput == "d":
             print("Delete a vessel and all its daugthers")

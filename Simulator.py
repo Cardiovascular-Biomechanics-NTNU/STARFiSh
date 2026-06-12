@@ -25,7 +25,7 @@ import gc
 import subprocess
 
 def main():
-    optionsDict = mStartUp.parseOptions(['f','n','d','s','v','r','w','p'])
+    optionsDict = mStartUp.parseOptions(['f','n','d','s','v','r','w','p','z','Z'])
     
     networkName           = optionsDict['networkName']
     save                  = optionsDict['save']
@@ -62,6 +62,16 @@ def main():
     
     vascularNetwork.update({'description':simulationDescription,
                             'dataNumber' :dataNumber})
+    # Determine whether to enable realtime visualisation:
+    # - explicit command-line flag `--realtime` (`realtime` in optionsDict) takes precedence
+    # - otherwise fall back to existing behaviour: enable realtime when any post-run viz is selected
+    # Realtime visualisation: enable by default for backward compatibility.
+    if optionsDict.get('no_realtime'):
+        vascularNetwork.enableRealTimeVisualisation = False
+    elif optionsDict.get('realtime'):
+        vascularNetwork.enableRealTimeVisualisation = True
+    else:
+        vascularNetwork.enableRealTimeVisualisation = True
     
     timeSolverInitStart = time.perf_counter()
     #initialize Solver
@@ -114,11 +124,10 @@ def main():
         viz3d = subprocess.Popen(string2, shell = True )
         
         while True:
-            
             if viz2d.poll() != None:
                 viz3d.terminate()
                 exit()
-                
+
             if viz3d.poll() != None:
                 viz2d.terminate()
                 exit()

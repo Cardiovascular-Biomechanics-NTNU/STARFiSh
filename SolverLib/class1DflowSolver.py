@@ -429,8 +429,9 @@ class FlowSolver(cSBO.StarfishBaseObject):
 
         for communicator in self.communicators.values():
             self.numericalObjects.append(communicator)
-            try:    communicator.startRealTimeVisualisation()
-            except Exception: self.warning("old except: pass #4 clause in c1dFlowSolv.initializeNumObjList", oldExceptPass= True)
+            if getattr(self.vascularNetwork, 'enableRealTimeVisualisation', True):
+                try:    communicator.startRealTimeVisualisation()
+                except Exception: self.warning("old except: pass #4 clause in c1dFlowSolv.initializeNumObjList", oldExceptPass= True)
 
         if self.venousPool:
             self.numericalObjects.append(self.venousPool)
