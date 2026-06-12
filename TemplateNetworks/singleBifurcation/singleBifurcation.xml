@@ -1,14 +1,17 @@
 <?xml version='1.0' encoding='ISO-8859-1'?>
-<singleBifurcation.xml id="1.0" version="4.0">
+<singleBifurcation.xml id="1.0" version="4.3">
   <simulationContext>
+    <description></description>
     <totalTime unit="s">1.0</totalTime>
     <CFL>0.98</CFL>
+    <timeSaveBegin unit="s">0.0</timeSaveBegin>
+    <minSaveDt unit="s">-1.0</minSaveDt>
+    <maxMemory unit="MB">500.0</maxMemory>
     <gravitationalField>False</gravitationalField>
     <gravityConstant unit="m s-2">-9.81</gravityConstant>
-    <centralVenousPressure unit="Pa">0.0</centralVenousPressure>
-    <minimumVenousPressure unit="Pa">0.0</minimumVenousPressure>
   </simulationContext>
   <solverCalibration>
+    <solvingSchemeField>MacCormack_Flux</solvingSchemeField>
     <rigidAreas>False</rigidAreas>
     <simplifyEigenvalues>False</simplifyEigenvalues>
     <riemannInvariantUnitBase>Pressure</riemannInvariantUnitBase>
@@ -28,13 +31,14 @@
     <rho unit="kg m-3">1050.0</rho>
     <gamma>2.0</gamma>
   </globalFluid>
+  <externalStimuli/>
   <communicators/>
   <boundaryConditions>
     <boundaryCondition vesselId="0">
       <Flow-Sinus2>
         <amp unit="m3 s-1">0.0002</amp>
         <ampConst unit="m3 s-1">0.0</ampConst>
-        <Npulse>1.0</Npulse>
+        <Npulse>5.0</Npulse>
         <Tpulse unit="s">0.0</Tpulse>
         <freq unit="s-1">5.0</freq>
         <Tspace unit="s">0.25</Tspace>
@@ -53,6 +57,8 @@
       </ReflectionCoefficient>
     </boundaryCondition>
   </boundaryConditions>
+  <randomInputManager/>
+  <measurementRoutine/>
   <vessels>
     <vessel Id="0" name="parentVessel">
       <topology>
@@ -65,7 +71,7 @@
         <length unit="m">0.5</length>
         <radiusProximal unit="m">0.0075</radiusProximal>
         <radiusDistal unit="m">0.005</radiusDistal>
-        <N>50.0</N>
+        <N>50</N>
       </geometry>
       <compliance>
         <complianceType>Laplace</complianceType>
@@ -73,7 +79,7 @@
         <externalPressure unit="Pa">0.0</externalPressure>
         <Ps unit="Pa">0.0</Ps>
         <As unit="m2">None</As>
-        <betaLaplace unit="Pa">324970.0</betaLaplace>
+        <betaLaplace unit="Pa m-1">324970.0</betaLaplace>
       </compliance>
       <fluid>
         <applyGlobalFluid>True</applyGlobalFluid>
@@ -93,7 +99,7 @@
         <length unit="m">0.5</length>
         <radiusProximal unit="m">0.002041241452</radiusProximal>
         <radiusDistal unit="m">0.001841241452</radiusDistal>
-        <N>50.0</N>
+        <N>50</N>
       </geometry>
       <compliance>
         <complianceType>Laplace</complianceType>
@@ -101,7 +107,7 @@
         <externalPressure unit="Pa">0.0</externalPressure>
         <Ps unit="Pa">0.0</Ps>
         <As unit="m2">None</As>
-        <betaLaplace unit="Pa">796020.0</betaLaplace>
+        <betaLaplace unit="Pa m-1">796020.0</betaLaplace>
       </compliance>
       <fluid>
         <applyGlobalFluid>True</applyGlobalFluid>
@@ -121,7 +127,7 @@
         <length unit="m">0.5</length>
         <radiusProximal unit="m">0.0020411</radiusProximal>
         <radiusDistal unit="m">0.001841241452</radiusDistal>
-        <N>50.0</N>
+        <N>50</N>
       </geometry>
       <compliance>
         <complianceType>Laplace</complianceType>
@@ -129,7 +135,7 @@
         <externalPressure unit="Pa">0.0</externalPressure>
         <Ps unit="Pa">0.0</Ps>
         <As unit="m2">None</As>
-        <betaLaplace unit="Pa">796020.0</betaLaplace>
+        <betaLaplace unit="Pa m-1">796020.0</betaLaplace>
       </compliance>
       <fluid>
         <applyGlobalFluid>True</applyGlobalFluid>
@@ -139,4 +145,5 @@
       </fluid>
     </vessel>
   </vessels>
+  <venousPool/>
 </singleBifurcation.xml>

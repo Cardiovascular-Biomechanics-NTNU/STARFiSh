@@ -196,6 +196,16 @@ def main(argv=None):
         help="Simulation description stored in output metadata.",
     )
     parser.add_argument(
+        "--upgrade-xml",
+        action="store_true",
+        help="Convert an outdated input XML to the current supported version and exit.",
+    )
+    parser.add_argument(
+        "--output-xml",
+        default=None,
+        help="Output XML file path for --upgrade-xml. If omitted, the input XML is overwritten.",
+    )
+    parser.add_argument(
         "--export-ascii",
         action="store_true",
         help="After the run, export every HDF5 dataset to CSV files.",
@@ -212,6 +222,7 @@ def main(argv=None):
     input_xml = _resolve_path(args.input_xml, cwd)
     output_dir = _resolve_path(args.output_dir, cwd)
     ascii_dir = _resolve_path(args.ascii_dir, cwd)
+    output_xml_arg = _resolve_path(args.output_xml, cwd) if args.output_xml else None
 
     if not os.path.isfile(input_xml):
         if args.input_xml == "input.xml":
@@ -220,6 +231,15 @@ def main(argv=None):
                 "Place the network XML at this exact name in the run directory."
             )
         parser.error("input XML file was not found: {}".format(input_xml))
+
+    if args.upgrade_xml:
+        from UtilityLib import moduleXML as mXML
+
+        output_xml = output_xml_arg or input_xml
+        mXML.upgradeNetworkXmlFileVersion(input_xml, output_xml)
+        logger.info("Upgraded XML file %s -> %s", input_xml, output_xml)
+        print("XML upgrade complete")
+        return 0
 
     run_case(
         input_xml=input_xml,

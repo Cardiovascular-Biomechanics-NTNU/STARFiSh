@@ -76,6 +76,12 @@ def parseOptions(activeOptions, visualisationOnly = False, vascularPolynomialCha
         elif activeOption == 'v':
                 parser.add_option('-v', '--vizBool', dest='vizBool',
                                   help = "choose visualisation mode, 0: no visualisation, 1: 2d and 3d, 2: 2d plots, 3: 3d visualisation")
+        elif activeOption == 'z':
+            parser.add_option('-z', '--realtime', action='store_true', dest='realtime',
+                      help = "enable realtime visualisation (overrides communicator defaults)")
+        elif activeOption == 'Z':
+            parser.add_option('-Z', '--no-realtime', action='store_true', dest='no_realtime',
+                      help = "disable realtime visualisation (overrides communicator defaults)")
         elif activeOption == 'c':       
                 parser.add_option("-c", "--connect", action="store_true",  dest='connect',
                                   help="connect to 3dViz (True) or not (False); currently not working")

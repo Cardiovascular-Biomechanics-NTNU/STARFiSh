@@ -31,6 +31,42 @@ from NetworkLib.classMeasurements import MeasurementRoutine
 #from constants import variableUnitsMed as variableUnits
 #from constants import unitsDictMed as unitsDict
 
+_optionalXmlVariableDefaults = {
+    'description': '',
+    'timeSaveBegin': '0.0',
+    'minSaveDt': '-1',
+    'maxMemory': '500',
+    'solvingSchemeField': 'MacCormack_Flux',
+}
+_optionalXmlVariablesByVersion = {
+    '4.0': {
+        'simulationContext': ['description', 'timeSaveBegin', 'minSaveDt', 'maxMemory'],
+        'solverCalibration': ['solvingSchemeField'],
+    },
+    '4.1': {
+        'simulationContext': ['description', 'timeSaveBegin', 'minSaveDt', 'maxMemory'],
+        'solverCalibration': ['solvingSchemeField'],
+    },
+    '4.2': {
+        'simulationContext': ['description', 'timeSaveBegin', 'minSaveDt', 'maxMemory'],
+        'solverCalibration': ['solvingSchemeField'],
+    },
+}
+
+def _getXmlVariableValue(xmlElement, variable, xmlElementName, xmlFileVersion):
+    """Return XML value text and unit, using legacy defaults for missing optional fields."""
+    try:
+        element = xmlElement.findall(''.join(['.//', variable]))[0]
+        variableValueStr = element.text
+        variableUnit = element.attrib.get('unit', None)
+        return variableValueStr, variableUnit
+    except Exception:
+        optionalVariablesForVersion = _optionalXmlVariablesByVersion.get(xmlFileVersion, {})
+        optionalVariablesForElement = optionalVariablesForVersion.get(xmlElementName, [])
+        if variable in optionalVariablesForElement:
+            return _optionalXmlVariableDefaults.get(variable), None
+        raise
+
 
 def writeXMLsetUnit(xmlElement, variable, value, unit = 'unitSI'):
     """
@@ -285,6 +321,57 @@ def loadingErrorMessageVariableError(variableName, element, elementName):
           variable "{}" of {} {} is not defined.
           (Hint:{}) , system exit!""".format(variableName, element, elementName, variableDict))
 
+def _networkNameFromXmlFile(networkXmlFile):
+    """Infer the network name from the root XML tag or filename."""
+    try:
+        parser = etree.XMLParser(encoding='iso-8859-1')
+        tree = etree.parse(networkXmlFile, parser)
+        root = tree.getroot()
+        return root.tag
+    except Exception:
+        return None
+
+
+def upgradeNetworkXmlFileVersion(networkXmlFile, outputNetworkXmlFile=None):
+    """Convert an outdated network XML file to the current newest supported version."""
+    if outputNetworkXmlFile is None:
+        outputNetworkXmlFile = networkXmlFile
+
+    if not os.path.exists(networkXmlFile):
+        raise FileNotFoundError("XML file not found: {}".format(networkXmlFile))
+
+    parser = etree.XMLParser(encoding='iso-8859-1')
+    tree = etree.parse(networkXmlFile, parser)
+    root = tree.getroot()
+    xmlFileVersion = root.attrib.get('version', '4.0')
+    currentVersions = ['4.0', '4.1', '4.2', '4.3']
+
+    if xmlFileVersion not in currentVersions:
+        raise ValueError(
+            "XML file {} has unsupported version {}. Supported versions: {}".format(
+                networkXmlFile, xmlFileVersion, currentVersions
+            )
+        )
+
+    if xmlFileVersion == newestNetworkXmlVersion and os.path.abspath(outputNetworkXmlFile) == os.path.abspath(networkXmlFile):
+        return outputNetworkXmlFile
+
+    networkName = _networkNameFromXmlFile(networkXmlFile)
+    if networkName is None:
+        networkName = os.path.splitext(os.path.basename(networkXmlFile))[0]
+
+    dataNumber = root.attrib.get('id', 'xxx')
+    vascularNetwork = loadNetworkFromXML(
+        networkName,
+        dataNumber=dataNumber,
+        networkXmlFile=networkXmlFile,
+        pathSolutionDataFilename=None,
+    )
+
+    writeNetworkToXML(vascularNetwork, dataNumber=dataNumber, networkXmlFile=outputNetworkXmlFile)
+    return outputNetworkXmlFile
+
+
 def loadNetworkFromXML(networkName ,
                        dataNumber = "xxx",
                        exception = 'Error',
@@ -293,9 +380,9 @@ def loadNetworkFromXML(networkName ,
     """
     Function loads network from XML-file
 
-    version of XML files supported: 4.0, 4.1, 4.2
+    version of XML files supported: 4.0, 4.1, 4.2, 4.3
     """
-    currentVersions = ['4.3']
+    currentVersions = ['4.0', '4.1', '4.2', '4.3']
 
     # read from file
     if networkName == None:
@@ -322,18 +409,13 @@ def loadNetworkFromXML(networkName ,
 
     # create root
     root = tree.getroot()
-    xmlFileVersion = root.attrib['version']
+    xmlFileVersion = root.attrib.get('version', '4.0')
     if xmlFileVersion not in currentVersions:
         print("ERROR moduleXML.loadNetworkFromXML(): XML file is outdated file-version {} " \
-        "current supported version {}, could not parse file! system exit".format(root.attrib['version'],currentVersions)); exit()
+        "current supported version {}, could not parse file! system exit".format(xmlFileVersion,currentVersions)); exit()
 
 
-    if xmlFileVersion == newestNetworkXmlVersion:
-        from .constants import newestNetworkXml as nxml
-    elif xmlFileVersion == '4.0':
-        import networkXml040 as nxml
-    elif xmlFileVersion == '4.1':
-        import networkXml041 as nxml
+    from .constants import newestNetworkXml as nxml
 
     if xmlFileVersion != newestNetworkXmlVersion:
         print(" WARNING the version of the network xml file you try to load is outdated it may cause some problems!")
@@ -488,17 +570,10 @@ def loadNetworkFromXML(networkName ,
                 globalFluidData = {}
 
                 for variable in nxml.xmlElementsReference[xmlElementName]:
-                    # find normal variables
                     try:
-                        element = xmlElement.findall(''.join(['.//',variable]))[0]
-                        # get variable value
-                        try: variableValueStr = element.text
-                        except: loadingErrorMessageValueError(variable, 'global fluid', '')
-                        # get unit
-                        try: variableUnit = element.attrib['unit']
-                        except: variableUnit = None
-                    # save converted XML-value
-                    except: loadingErrorMessageVariableError(variable, 'global fluid', '')
+                        variableValueStr, variableUnit = _getXmlVariableValue(xmlElement, variable, xmlElementName, xmlFileVersion)
+                    except:
+                        loadingErrorMessageVariableError(variable, 'global fluid', '')
 
                     globalFluidData[variable] = loadVariablesConversion(variable, variableValueStr, variableUnit)
 
@@ -531,16 +606,10 @@ def loadNetworkFromXML(networkName ,
                 vascularNetworkData = {}
                 for variable in nxml.xmlElementsReference[xmlElementName]:
                     try:
-                        element = xmlElement.findall(''.join(['.//',variable]))[0]
-                        # get variable value
-                        try: variableValueStr = element.text
-                        except: loadingErrorMessageValueError(variable, xmlElementName, '')
-                        # get
-                        try: variableUnit = element.attrib['unit']
-                        except: variableUnit = None
-                    except: loadingErrorMessageVariableError(variable, xmlElementName, '')
+                        variableValueStr, variableUnit = _getXmlVariableValue(xmlElement, variable, xmlElementName, xmlFileVersion)
+                    except:
+                        loadingErrorMessageVariableError(variable, xmlElementName, '')
 
-                    # save converted XML-value
                     vascularNetworkData[variable] = loadVariablesConversion(variable, variableValueStr, variableUnit)
                 vascularNetwork.update(vascularNetworkData)
 

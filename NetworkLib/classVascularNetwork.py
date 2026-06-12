@@ -1,5 +1,10 @@
 import sys
 import os
+# Disable HDF5 file locking on filesystems where locks are unavailable.
+# This is required on some mounted or shared filesystems that raise errno 11
+# when h5py tries to acquire an exclusive lock.
+os.environ.setdefault('HDF5_USE_FILE_LOCKING', 'FALSE')
+
 # set the path relative to THIS file not the executing file!
 cur = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(cur + '/../')
