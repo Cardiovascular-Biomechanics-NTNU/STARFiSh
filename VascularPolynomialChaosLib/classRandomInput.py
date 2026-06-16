@@ -89,31 +89,51 @@ class RandomInput(TestBaseClass):
                 for variableIdentifier,updateMethod in self.updateMethods.items():                    
                     updateMethod({variableIdentifier : realisation})
                 self.updateLog.append(realisation)
-                    
+
     def generateInfo(self):
         '''
         Function to create a log-string with random input information.
-        
+
         Returns:
-            randomInputInfo (str): information about the random input definitions
+        randomInputInfo (str): information about the random input definitions
         '''
+
         if self.distributionType in self.printOutDistributions:
             dist = self.printOutDistributions[self.distributionType]
         else:
             dist = self.distributionType
-        
+
+        def s(x):
+            return "" if x is None else str(x)
+
         randomInputInfo = []
-        
-        for i,loc in enumerate(self.parameter.split('_')):
+
+
+        for i, loc in enumerate(self.parameter.split('_')):
             if i == 0:
-                info = '{:3} | {:20} | {:21} | {:3} + {:3} {} '.format(self.name,self.variableName,loc, self.a, self.b, dist)
+                info = '{:3} | {:20} | {:21} | {:3} + {:3} {} '.format(
+                    s(self.name),
+                    s(self.variableName),
+                    s(loc),
+                    s(self.a),
+                    s(self.b),
+                    s(dist)
+                )
             else:
-                info = '{:3} | {:20} | {:21} | '.format(' ',' ',loc)
+                info = '{:3} | {:20} | {:21} | '.format(
+                    ' ',
+                    ' ',
+                    s(loc)
+                )
+
             randomInputInfo.append(info)
+
         randomInputInfo.append('\n')
+
         return randomInputInfo
-        
-        
+
+
+
 class ParametricRandomInput(RandomInput):
     
     externVariables      = {'parameter': TestBaseClass.ExtValue(str,strCases = ['anything']),
