@@ -1,3 +1,13 @@
+# Legacy branch: STARFiSh v0.4 (Python 2.7)
+
+This branch preserves the original STARFiSh v0.4 codebase released in November 2016.
+
+The code is based on Python 2.7 and is retained for historical reference, reproducibility of published work, and archival purposes.
+
+Active development has continued through subsequent Python 3 porting efforts and later CRIMSON-related developments. Users looking for a maintained version should refer to the active development branches of this repository.
+
+---
+
 # STARFiSh: STochastic ARterial Flow Simulator
 
 <http://www.ntnu.no/starfish>
