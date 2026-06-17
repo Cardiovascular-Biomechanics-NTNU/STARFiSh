@@ -1,105 +1,15 @@
-# STARFiSh: STochastic ARterial Flow Simulator
+# STARFiSh
 
-<http://www.ntnu.no/starfish>
+STARFiSh is an open-source one-dimensional haemodynamic simulation framework for cardiovascular research and education.
 
-Copyright 2012-2016 Vinzenz Eck
+This repository contains the historical STARFiSh codebase together with subsequent Python 3 porting efforts and ongoing research-oriented developments.
 
-## License
+## Branches
 
-This program is free software: you can redistribute it and/or modify it
-under the terms of the GNU Lesser General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+- `master`: Python 3 baseline derived from the original STARFiSh v0.4 codebase.
+- `legacy/v0.4-python2`: Original STARFiSh v0.4 release (Python 2.7), preserved for historical reference and reproducibility.
+- Additional branches contain experimental developments, modernisation efforts, and research-specific extensions.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
+## Status
 
-You should have received a copy of the GNU Lesser General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-
-
-## Contributors:
-
-* Leif Rune Hellevik
-* Vinzenz Gregor Eck
-* Jacob Sturdy
-* Knut Petter Maraak
-* Paul Roger Leinan 
-* Fredrik Eikeland Fossan 
-* Einar Nyberg Karlsen
-* Yvan Gugler
-* Yapi Donatien Achou
-* Hallvard Moian Nydal 
-
-
-# STARFiSh: 
-is a python3, shell-based, scientific simulation program for blood flow in mammals!
-
-## Components
-
-* vascular network creator - vnc - is a shell-based tool to create arterial networks for the simulation tool STARFiSh.
-* VascularPolynomialChaos - is a module allowing users to simulate blood flow subject to uncertainties in model parameters
-* Visualisation - is a module relying on GTK to allow visualisation of the results from simulations both as 2D and 3D plots of pressures, flows, areas, etc. throughout the simulated network.
-
-## Installation
-
-* To get started with starfish download the code to your desired location
-* Install Miniconda first if you do not have conda: <https://docs.conda.io/en/latest/miniconda.html>
-* There are two scripts `ubuntu_dependencies.sh` and `fedora_dependencies.sh` that install required system packages and create a dedicated conda environment (`starfish-py3` by default) for all pip dependencies. (These scripts likely require administrator privileges.)
-* The scripts enforce Python 3.11 inside the environment for reproducibility.
-* Optional: override the Python version if needed, e.g. `PYTHON_VERSION=3.10 ENV_NAME=my-starfish-env ./ubuntu_dependencies.sh`
-* Optional: choose a custom environment name before running a script, e.g. `ENV_NAME=my-starfish-env ./fedora_dependencies.sh`
-* Activate the environment with `conda activate starfish-py3` (or your custom `ENV_NAME`)
-* Check the status of the install with `python3 systemCheck.py`
-* You should be able to start with `python3 starfish.py` in the same directory as you have downloaded the files
-* When you first run `starfish.py` it will ask you to create a working directory. This working directory is where all output from simulations and network creation will be saved.
-
-## Coding
-For programmers going to work on this code:
-
-The standard convention for writing Python code:
-<https://www.python.org/dev/peps/pep-0008/>
-
-Using Sphinx with some extensions, docstrings in the code 
-will be used to autogenerate documentation. To generate it, 
-enter the AutoDocumentation folder and run "make html". If 
-you've altered modules, run "make clean" first. If you've 
-altered module names, folders, or top level modules, edit 
-AutoDocumentation/sources/index.rst accordingly, and then 
-run "make fullupdate".
-
-We will use a slightly modified Google standard 
-for writing docstrings. (return is different)
-
-```
-def foo(input1, input2):
-	"""
-	describe function here
-	
-	Args:
-		input1 (type): description of input1
-		input2 (type): description of input2
-	
-	Returns:   ### This has different syntax depending ###
-               ### on how many outputs it has.         ###
-
-        type of soleOutput: description of soleOutput
-
-		type of output1
-			description of output1
-		type of output2
-			description of output2
-	
-	Raises:
-		IOError: An error occured loading myClass.myStuff
-	"""
-``` 
-
-Example can be found in UtilityLib/moduleCSV.py
-in the function readBCFromCSV
-
-
-
+STARFiSh is research software under active development. Users should consult branch-specific documentation when working with experimental or specialised features.
