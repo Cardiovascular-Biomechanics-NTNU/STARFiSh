@@ -134,9 +134,13 @@ class DraggableNode(QtWidgets.QGraphicsEllipseItem):
         return super().itemChange(change, value)
 
 class SlicerLauncherPanel(QtWidgets.QWidget):
+    export_to_editor_requested = QtCore.Signal(dict, list)
+
     def __init__(self):
         super().__init__()
         self.selected_file = None
+        self.current_nodes = {}
+        self.current_edges = []
         self.settings = QtCore.QSettings("STARFiSh", "SlicerIntegration")
         self.slicer_exec = self.load_slicer_executable()
         self.report_rows = []
@@ -261,10 +265,15 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         self.btn_fit_screen = QtWidgets.QPushButton("Fit to Screen")
         self.btn_fit_screen.clicked.connect(self.fit_graph_to_screen)
         
+        self.btn_export_canvas = QtWidgets.QPushButton("Export to Canvas")
+        self.btn_export_canvas.setObjectName("primaryButton")
+        self.btn_export_canvas.clicked.connect(self.export_to_canvas)
+        
         report_actions.addWidget(self.btn_load_report)
         report_actions.addWidget(self.btn_clear_report)
         report_actions.addWidget(self.btn_fit_screen)
         report_actions.addStretch()
+        report_actions.addWidget(self.btn_export_canvas)
 
         self.lbl_report_status = QtWidgets.QLabel("No saved centerline report loaded.")
         self.lbl_report_status.setObjectName("statusLabel")
@@ -515,6 +524,12 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         rect = self.report_scene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
         self.report_view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
 
+    def export_to_canvas(self):
+        if not self.current_nodes or not self.current_edges:
+            QtWidgets.QMessageBox.warning(self, "No Graph", "Load a report first to generate a graph.")
+            return
+        self.export_to_editor_requested.emit(self.current_nodes, self.current_edges)
+
     def read_branch_report(self, path):
         if path.lower().endswith(".starfish_slicer") or path.lower().endswith(".json"):
             with open(path, "r") as f:
@@ -598,7 +613,8 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
                 "start": start_id,
                 "end": end_id,
                 "index": index,
-                "length_mm": branch["length_mm"]
+                "length_mm": branch["length_mm"],
+                "area_mm2": branch["mean_area_mm2"]
             })
 
         # 2. Layout nodes: Junctions in the center, Terminals in an outer circle
@@ -669,6 +685,10 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         # Center the view initially on the generated layout
         initial_rect = self.report_scene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
         self.report_view.fitInView(initial_rect, QtCore.Qt.KeepAspectRatio)
+        
+        # Save topology for export
+        self.current_nodes = {node_id: {"x": positions[node_id].x(), "y": positions[node_id].y()} for node_id in nodes}
+        self.current_edges = edges
 
     def close_slicer(self):
         if not self.slicer_process:

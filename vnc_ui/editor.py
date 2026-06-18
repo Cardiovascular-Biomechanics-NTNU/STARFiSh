@@ -77,6 +77,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # Add 3D Slicer Launcher Tab before result visualization.
         from vnc_ui.slicer_panel import SlicerLauncherPanel
         self.slicer_tab = SlicerLauncherPanel()
+        self.slicer_tab.export_to_editor_requested.connect(self.import_from_slicer_topology)
         self.tabs.addTab(self.slicer_tab, "3D Slicer Integration")
 
         if self._enable_visualization_tab:
@@ -225,6 +226,65 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.scene.enforce_fixed_lengths()
 
         self.scene.setSceneRect(-800, -800, 1600, 1600)
+
+    def import_from_slicer_topology(self, nodes_dict, edges_list):
+        if self.scene.items():
+            reply = QtWidgets.QMessageBox.question(
+                self, 'Clear Canvas?',
+                'Importing Slicer topology will replace the current model canvas. Proceed?',
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No
+            )
+            if reply == QtWidgets.QMessageBox.No:
+                return
+
+        # Clear existing
+        for item in self.scene.items():
+            if hasattr(item, "cleanup"):
+                item.cleanup()
+            self.scene.removeItem(item)
+            
+        self.node_count = 0
+        self.edge_count = 0
+
+        node_objects = {}
+
+        # 1. Instantiate JunctionNodes
+        for node_id, pos in nodes_dict.items():
+            self.node_count += 1
+            is_terminal = "(Inlet)" in node_id or "(Outlet)" in node_id
+            label = "Terminal" if is_terminal else "Junction"
+            
+            node = JunctionNode(f"{label} {self.node_count}")
+            node.setPos(pos["x"], pos["y"])
+            self.scene.addItem(node)
+            node_objects[node_id] = node
+
+        # 2. Instantiate VesselEdges
+        for edge in edges_list:
+            self.edge_count += 1
+            source_node = node_objects[edge["start"]]
+            dest_node = node_objects[edge["end"]]
+            
+            vessel = VesselEdge(source_node, dest_node, f"Vessel {self.edge_count} (from {edge['branch_name']})")
+            
+            # Map physical parameters
+            vessel.length_mm = edge["length_mm"]
+            if "area_mm2" in edge:
+                vessel.area_start_mm2 = edge["area_mm2"]
+                vessel.area_end_mm2 = edge["area_mm2"]
+            
+            self.scene.addItem(vessel)
+
+        # 3. Enforce layout and show canvas
+        self.scene.enforce_fixed_lengths()
+        rect = self.scene.itemsBoundingRect()
+        if not rect.isEmpty():
+            rect.adjust(-100, -100, 100, 100)
+            self.scene.setSceneRect(rect)
+            self.fit_to_screen()
+        
+        # Switch to the primary editor tab (index 0)
+        self.tabs.setCurrentIndex(0)
 
     # --- Network import/export (full STARFiSh XML) ---
     def import_network_xml(self):
