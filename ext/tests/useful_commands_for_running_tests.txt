@@ -1,0 +1,5 @@
+#### you need to change the set directores for crimson_root, crimson-depts and the pythhon root before you run any commands
+
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure

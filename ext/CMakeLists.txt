@@ -103,17 +103,53 @@ include_directories(
     ${CRIMSON_DEPS}/vtk-crimson/include/vtk-5.8
 )
 
-# 5. Build the Python module from your Bridge files ONLY
+# 5. Build the standalone CRIMSON netlist worker.
+# This executable owns the Python 2 controller runtime in a separate process;
+# it must never be linked into STARFiSh's Python 3 nanobind module.
+add_executable(
+    crimson_netlist_worker
+    CrimsonNetlistWorker.cpp
+    CrimsonNetlistRuntime.cpp
+    CrimsonControlSystems.cpp
+)
+
+target_compile_definitions(
+    crimson_netlist_worker
+    PRIVATE
+    PETSC_USE_REAL_SCALAR
+)
+
+target_link_libraries(
+    crimson_netlist_worker
+    PRIVATE
+    crimson_python_runtime
+
+    # CRIMSON static libraries
+    ${CRIMSON_LIB_DIR}/libcrimson_flowsolver.a
+    ${CRIMSON_LIB_DIR}/libcrimson_solverio.a
+    ${CRIMSON_LIB_DIR}/libcrimson_common.a
+
+    # External dependencies
+    ${CRIMSON_DEPS}/petsc/lib/libpetsc.so
+    ${CRIMSON_DEPS}/petsc/lib/libmpicxx.so
+    ${CRIMSON_DEPS}/petsc/lib/libmpi.so
+    ${CRIMSON_DEPS}/openblas/lib/libopenblas.so
+    ${CRIMSON_DEPS}/boost_1_74/lib/libboost_system.so
+    ${CRIMSON_DEPS}/boost_1_74/lib/libboost_filesystem.so
+    ${CRIMSON_DEPS}/boost_1_74/lib/libboost_thread.so
+)
+
+# 6. Build the Python module from your Bridge files ONLY
 # We do NOT include .cxx files here because we link the .a libs instead
 nanobind_add_module(crimson_starfish_bridge 
     bindings.cpp 
     StarfishBridge.cpp
 )
 
-# 6. Force the bridge to use Real scalars to match CRIMSON's core
+# 7. Force the bridge to use Real scalars to match CRIMSON's core
 target_compile_definitions(crimson_starfish_bridge PRIVATE PETSC_USE_REAL_SCALAR)
 
-# 7. Link everything together
+# 8. Link everything together
 # We link the .a libraries which contain all the symbols (NetlistReader, etc.)
 target_link_libraries(crimson_starfish_bridge PRIVATE 
     # CRIMSON Static Libraries (order can matter, specialized first)

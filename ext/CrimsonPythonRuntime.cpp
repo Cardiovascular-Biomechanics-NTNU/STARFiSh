@@ -16,6 +16,7 @@
 
 void initialisePython()
 {
+    // A runtime process owns one Python 2 interpreter for its full lifetime.
     if (Py_IsInitialized()) {
         return;
     }
@@ -58,6 +59,8 @@ void initialisePython()
 
     PyRun_SimpleString("import sys");
 
+    // CRIMSON controller scripts import their abstract base class from this
+    // library directory.
     std::stringstream addControllerPath;
     addControllerPath << "sys.path.insert(0, r'"
                       << controllerLibrary.string()

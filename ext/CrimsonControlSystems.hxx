@@ -9,6 +9,13 @@
 class ControlSystemsManager;
 class NetlistCircuit;
 
+/**
+ * Thin adapter around CRIMSON's existing ControlSystemsManager.
+ *
+ * It recreates the controller-registration loops from
+ * BoundaryConditionManager::createControlSystems(); controller execution and
+ * parameter mutation remain entirely inside CRIMSON.
+ */
 class CrimsonControlSystems
 {
 public:
@@ -18,11 +25,16 @@ public:
         int startingTimestep,
         int restartInterval);
 
+    /**
+     * Register component and node controllers for each
+     * (netlist index, circuit) pair after all circuits are initialized.
+     */
     void initialize(
         const std::vector<
             std::pair<int, boost::shared_ptr<NetlistCircuit> >
         >& circuits);
 
+    // Execute CRIMSON's ordered Python/native controller update.
     void update();
 
     int controllerCount() const;

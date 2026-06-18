@@ -31,6 +31,8 @@ void CrimsonControlSystems::initialize(
 
     NetlistXmlReader* reader = NetlistXmlReader::Instance();
 
+    // These are the same maps consumed by
+    // BoundaryConditionManager::createControlSystems() in CRIMSON 3D.
     const std::map<int, std::map<int, ComponentControlSpecificationContainer> >&
         componentControls =
             reader->getMapsOfComponentControlTypesForEachSurface();
@@ -62,6 +64,8 @@ void CrimsonControlSystems::initialize(
                 for (int controlIndex = 0;
                      controlIndex < component->second.getNumberOfControlScripts();
                      ++controlIndex) {
+                    // One component may have multiple controllers, for example
+                    // compliance and unstressed-volume control.
                     manager_->createParameterController(
                         component->second.getControlTypeByIndexLocalToComponent(
                             controlIndex),

@@ -1,15 +1,17 @@
-// similar script to crimson/estimation/src/CRIMSONPython.hxx 
-
 #ifndef STARFISH_CRIMSON_PYTHON_RUNTIME_HXX
 #define STARFISH_CRIMSON_PYTHON_RUNTIME_HXX
 
 #include <Python.h>
 
-// Initialize the isolated Python 2.7 interpreter and add CRIMSON's
-// basicControlScripts/lib directory to Python's import path.
+/**
+ * Initialize the isolated Python 2.7 interpreter used by CRIMSON controllers.
+ *
+ * The implementation uses environment overrides or CMake-provided defaults,
+ * adds basicControlScripts/lib to sys.path, and verifies CRIMSONPython imports.
+ */
 void initialisePython();
 
-// Safely release a Python object reference.
+// Match the helper symbol expected by CRIMSON's controller implementation.
 void safe_Py_DECREF(PyObject* object);
 
 #endif

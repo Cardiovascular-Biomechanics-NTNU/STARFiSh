@@ -1712,6 +1712,132 @@ Every netlist should use the same CRIMSON runtime path. Passive circuits simply
 create zero Python controllers. Controller support should not be presented as
 a user-selectable coupling mode.
 
+### Runtime API Mapping
+
+The standalone CRIMSON executable should expose a small transport API and
+delegate each request directly to `CrimsonNetlistRuntime`:
+
+```text
+load
+  -> runtime.load(...)
+
+start_timestep
+  -> runtime.startTimestep(...)
+
+compute_coefficients
+  -> runtime.computeCoefficients(...)
+
+update_state
+  -> runtime.updateState(...)
+
+finalize_timestep
+  -> runtime.finalizeTimestep(...)
+```
+
+The executable is a transport boundary, not a second netlist implementation.
+It receives requests from STARFiSh, validates and converts their data, invokes
+the corresponding runtime method, and returns the result.
+
+For example:
+
+```text
+STARFiSh:
+  compute coefficients for surface 2 with Q = 1.0e-5
+
+CRIMSON executable:
+  runtime.computeCoefficients(2, timestep, time, 1.0e-5)
+
+CRIMSON runtime:
+  returns dp_dq and Hop
+
+STARFiSh interface:
+  solves the unknown characteristic
+```
+
+STARFiSh does not need access to circuit components, controller objects, diode
+states, or netlist history arrays. Those remain owned by the CRIMSON runtime.
+
+### Per-Timestep Runtime Flow
+
+The intended coupled timestep sequence is:
+
+```text
+STARFiSh starts timestep n
+  -> runtime.startTimestep(n)
+
+For each netlist boundary:
+  -> runtime.computeCoefficients(surface)
+  <- dp_dq, Hop
+
+STARFiSh characteristic interface:
+  solve the unknown characteristic
+  compute the final interface P and Q
+
+For each surface:
+  -> runtime.updateState(surface, P, Q)
+
+After all surfaces:
+  -> runtime.finalizeTimestep(n)
+       finalize CRIMSON circuit histories
+       write pressure, flow, and volume outputs
+       run CRIMSON native and Python controllers
+
+Next timestep:
+  controller-updated parameters affect dp_dq and Hop
+```
+
+The ordering is important. `computeCoefficients()` evaluates the boundary law
+using the state and parameters active for timestep `n`. STARFiSh then solves
+its characteristic equation and sends the converged interface state through
+`updateState()`. Only after every surface has been updated may
+`finalizeTimestep()` commit histories, write outputs, and run controllers.
+Controller changes therefore affect the coefficients requested during the
+next timestep, matching the CRIMSON lifecycle.
+
+### Why Python 3 and Python 2 Can Coexist
+
+The two Python versions are safe because they run in different operating-system
+processes:
+
+```text
+STARFiSh process
+  Python 3.11
+  STARFiSh solver and coupling interface
+
+CRIMSON netlist executable process
+  C++ CrimsonNetlistRuntime
+  CRIMSON ControlSystemsManager
+  embedded Python 2.7 controller interpreter
+```
+
+Each process has its own address space, loaded libraries, global symbols,
+interpreter state, and Python ABI. The STARFiSh process loads Python 3.11 only.
+The CRIMSON executable links to and initializes Python 2.7 only. Consequently,
+Python 2 symbols such as `PyString_*` and `PyInt_*` never have to coexist with
+Python 3 symbols inside one executable.
+
+Communication between the processes contains only language-neutral coupling
+data:
+
+```text
+STARFiSh -> CRIMSON:
+  command, surfaceId, timestep, time, dt, P, Q
+
+CRIMSON -> STARFiSh:
+  dp_dq, Hop, interface mode, status/error information
+```
+
+No Python objects, pointers, or interpreter-owned memory cross the process
+boundary. This preserves STARFiSh as a Python 3 application while allowing the
+existing CRIMSON Python 2 controllers to run unchanged.
+
+`CrimsonNetlistRuntime` is the transport-independent C++ owner of the netlist
+lifecycle. The standalone executable will call it, while the current
+`StarfishBridge` remains the in-process Python 3 transport during migration.
+The runtime approach is therefore an addition first and a replacement for the
+bridge's duplicated lifecycle ownership only after passive and controlled
+netlist equivalence has been verified.
+
 ### Recommended Implementation Order
 
 Before changing the current runtime, proceed in small verified stages:

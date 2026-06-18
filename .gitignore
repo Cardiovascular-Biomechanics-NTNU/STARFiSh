@@ -2,7 +2,6 @@
 .codex
 .agents
 examples/
-*.txt
 LOG*
 build
 # Python
