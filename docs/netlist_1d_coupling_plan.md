@@ -1500,6 +1500,494 @@ solver.py
   CRIMSON netlist history files there.
 ```
 
+## CRIMSON Python Controller Ownership
+
+Python-based parameter controllers belong to CRIMSON's netlist subsystem, not
+to the STARFiSh 1D solver or the 1D characteristic interface.
+
+The existing CRIMSON 3D architecture is:
+
+```text
+CRIMSON Fortran 3D solver
+  |
+  v
+BoundaryConditionManager
+  |
+  +-- NetlistCircuit
+  |
+  +-- ControlSystemsManager
+        |
+        +-- native C++ controllers
+        |
+        +-- embedded Python 2 controller scripts
+```
+
+`NetlistCircuit` owns the circuit equations and state, but it does not by
+itself create and execute all parameter controllers. In the 3D solver, the
+surrounding `BoundaryConditionManager` and `ControlSystemsManager` provide that
+functionality.
+
+### CRIMSON 3D Initialization
+
+The normal CRIMSON setup performs the following work:
+
+```text
+1. Initialize the embedded Python interpreter.
+2. Read netlist_surfaces.xml.
+3. Construct the NetlistCircuit objects.
+4. Read component and node controller declarations.
+5. BoundaryConditionManager creates one ControlSystemsManager.
+6. ControlSystemsManager creates the requested controllers.
+7. Each controller receives a pointer to the netlist parameter it controls.
+```
+
+Examples of controlled quantities include:
+
+```text
+component resistance
+component compliance
+component unstressed volume
+prescribed component flow
+prescribed nodal pressure
+heart elastance parameters
+```
+
+A Python controller receives the current controlled parameter, fixed `delt`,
+and dictionaries containing the current netlist pressures, flows, and volumes.
+The value returned by Python is written directly into the corresponding C++
+netlist parameter.
+
+Controller priorities and controller-to-controller broadcast dictionaries are
+also managed entirely by CRIMSON's `ControlSystemsManager`.
+
+### CRIMSON 3D Timestep Lifecycle
+
+The simplified CRIMSON sequence is:
+
+```text
+for every timestep n:
+
+  NetlistCircuit::initialiseAtStartOfTimestep()
+
+  for every required 3D flow solve:
+      compute dp_dq and Hop
+      3D solver applies:
+          P = dp_dq * Q + Hop
+
+  receive final converged interface flow/pressure
+
+  NetlistCircuit::updateLPN(n)
+  NetlistCircuit::finalizeLPNAtEndOfTimestep()
+
+  write netlist pressure/flow/volume histories
+
+  ControlSystemsManager::updateBoundaryConditionControlSystems()
+      -> run Python and native controllers
+      -> modify netlist parameters for timestep n+1
+```
+
+Therefore, controllers do not return `dp_dq` or `Hop` directly. They modify
+resistances, compliances, prescribed values, elastances, or other circuit
+parameters. The next netlist matrix construction then produces coefficients
+that include those updated values.
+
+### STARFiSh Responsibility
+
+STARFiSh should continue treating CRIMSON as a black-box boundary-condition
+solver. The intended communication remains:
+
+```text
+STARFiSh -> CRIMSON:
+  surfaceId
+  timestep
+  time
+  fixed dt
+  interface pressure
+  interface flow
+
+CRIMSON -> STARFiSh:
+  dp_dq
+  Hop
+  interface flow-permission / diode state
+```
+
+STARFiSh should not implement:
+
+```text
+controller script loading
+controller priorities
+controller broadcast dictionaries
+controller restart/pickling
+component parameter modification
+heart-controller equations
+```
+
+Those remain CRIMSON responsibilities behind the interface.
+
+The 1D-specific code only uses the returned affine law:
+
+```text
+P_interface = dp_dq * Q_interface + Hop
+```
+
+to solve the unknown characteristic and obtain the final 1D boundary pressure
+and flow.
+
+### Current Limitation
+
+The current STARFiSh bridge constructs `NetlistCircuit` directly:
+
+```text
+STARFiSh Python 3.11
+  -> CrimsonNetlistAdapter
+  -> nanobind module
+  -> StarfishBridge
+  -> NetlistCircuit
+```
+
+This path supports passive circuits and CRIMSON's normal netlist solve, but it
+bypasses the 3D-level controller ownership provided by:
+
+```text
+BoundaryConditionManager
+ControlSystemsManager
+embedded CRIMSON Python runtime
+```
+
+Consequently, adding controller declarations to `netlist_surfaces.xml` is not
+enough by itself. The direct `NetlistCircuit` bridge does not currently create
+or update those controllers.
+
+### Python Runtime Constraint
+
+STARFiSh runs in Python 3.11, while the existing CRIMSON controller layer uses
+the Python 2 C API, including calls such as:
+
+```text
+PyString_*
+PyInt_*
+```
+
+Loading that Python 2 controller runtime into the same process as STARFiSh's
+Python 3 interpreter is unsafe and can produce missing-symbol or interpreter
+ABI failures.
+
+This is a runtime separation issue, not a reason to reimplement CRIMSON
+controllers in STARFiSh.
+
+### Proposed Full-Controller Architecture
+
+For full CRIMSON controller compatibility, the clean target is:
+
+```text
+STARFiSh Python 3.11
+  |
+  | P, Q, timestep, time, dt
+  | dp_dq, Hop, interface mode
+  v
+CRIMSON netlist runtime process
+  |
+  +-- NetlistCircuit
+  +-- ControlSystemsManager
+  +-- embedded Python 2.7
+```
+
+The separate process is only a Python-runtime boundary. It must not duplicate
+the controller implementation. CRIMSON still owns:
+
+```text
+netlist parsing
+circuit state
+controller creation
+Python controller execution
+parameter updates
+diode switching
+history and restart state
+```
+
+STARFiSh only communicates the numerical interface data already required by
+the coupling.
+
+Every netlist should use the same CRIMSON runtime path. Passive circuits simply
+create zero Python controllers. Controller support should not be presented as
+a user-selectable coupling mode.
+
+### Recommended Implementation Order
+
+Before changing the current runtime, proceed in small verified stages:
+
+```text
+1. Preserve the existing passive-netlist baseline results.
+
+2. Build a standalone CRIMSON-owned runtime using the known Python 2.7
+   environment.
+
+3. Make that runtime load and solve the existing passive resistor case.
+
+4. Verify that its dp_dq, Hop, pressure, flow, and volume histories match the
+   current in-process bridge.
+
+5. Add CRIMSON ControlSystemsManager creation using controller declarations
+   already present in netlist_surfaces.xml.
+
+6. Run one minimal controlled-resistance test and verify that the parameter
+   changes affect the next timestep's coefficients.
+
+7. Only after equivalence is demonstrated, route normal STARFiSh netlist runs
+   through the CRIMSON-owned runtime.
+```
+
+The build should use the designated CRIMSON Python environment, expected at:
+
+```text
+/home/sadid/miniconda3/envs/flow/bin/python
+/home/sadid/miniconda3/envs/flow/include/python2.7/
+/home/sadid/miniconda3/envs/flow/lib/
+```
+
+The STARFiSh source tree should not modify CRIMSON source files. Any small
+runtime adapter required for initialization should live in `ext/`, while the
+actual netlist and controller classes continue to come from the CRIMSON
+libraries.
+
+## Closed-Loop Netlist Support Plan
+
+Closed-loop netlists are a separate extension beyond independent boundary
+circuits and normal multi-surface output handling.
+
+CRIMSON distinguishes:
+
+```text
+boundary netlist circuits
+  One circuit attached to each 1D/3D interface.
+
+closed-loop downstream circuits
+  Shared circuits that connect multiple boundary netlists and close the
+  cardiovascular loop.
+```
+
+The current STARFiSh bridge constructs independent `NetlistCircuit` objects.
+That representation is sufficient for uncoupled outlet or inlet circuits, but
+it does not reproduce CRIMSON's shared downstream closed-loop connectivity.
+
+### Relevant CRIMSON Classes
+
+The closed-loop implementation is primarily owned by:
+
+```text
+NetlistBoundaryCircuitWhenDownstreamCircuitsExist.hxx/.cxx
+NetlistClosedLoopDownstreamCircuit.hxx/.cxx
+ClosedLoopDownstreamSubsection.hxx/.cxx
+ClosedLoopBoundaryConditionSubsection.hxx/.cxx
+```
+
+The relevant construction, controller-registration, update, and finalization
+loops also appear in:
+
+```text
+BoundaryConditionManager.hxx/.cxx
+multidom.cxx
+itrdrv.f90
+```
+
+These classes should be reused. STARFiSh should not create a second
+implementation of closed-loop circuit connectivity.
+
+### Closed-Loop Input Files
+
+A closed-loop case can require both:
+
+```text
+netlist_surfaces.xml
+netlist_closed_loop_downstream.xml
+```
+
+`NetlistXmlReader` owns the boundary circuit description.
+`NetlistDownstreamXmlReader` owns the downstream closed-loop description.
+
+Both files should eventually live in the STARFiSh case directory beside:
+
+```text
+input.xml
+```
+
+STARFiSh should still avoid parsing component topology itself. The CRIMSON
+runtime should load both files and construct the complete circuit system.
+
+### Required System Ownership
+
+Closed-loop support requires a system-level owner:
+
+```text
+CRIMSON closed-loop netlist runtime
+  |
+  +-- boundary netlist circuits
+  +-- downstream closed-loop circuits
+  +-- boundary subsections
+  +-- downstream subsections
+  +-- shared node/flow connections
+  +-- ControlSystemsManager
+```
+
+This differs from the current direct mapping:
+
+```text
+surfaceId -> independent NetlistCircuit
+```
+
+The shared downstream circuit must be created and advanced once globally. It
+must not be independently owned or finalized by each STARFiSh boundary object.
+
+### Initialization Order
+
+The expected CRIMSON-compatible setup order is:
+
+```text
+1. Initialize PETSc/MPI and the CRIMSON Python runtime.
+
+2. Load netlist_surfaces.xml.
+
+3. Load netlist_closed_loop_downstream.xml.
+
+4. Construct every boundary circuit.
+
+5. Construct every downstream closed-loop circuit.
+
+6. Create the boundary and downstream subsection objects.
+
+7. Connect shared pressure nodes and component flows.
+
+8. Initialize the complete connected circuit system.
+
+9. Create component and node controllers for boundary circuits.
+
+10. Create component and node controllers for downstream circuits.
+```
+
+Controllers must be created after connectivity is complete because CRIMSON
+controllers store direct pointers to circuit parameters, pressures, flows, and
+volumes.
+
+### Controller Registration
+
+The current `CrimsonControlSystems` wrapper reproduces the boundary-circuit
+loop from:
+
+```cpp
+BoundaryConditionManager::createControlSystems()
+```
+
+Closed-loop support must add the second CRIMSON loop that reads:
+
+```text
+NetlistDownstreamXmlReader component control maps
+NetlistDownstreamXmlReader node control maps
+```
+
+and calls:
+
+```cpp
+ControlSystemsManager::createParameterController(...)
+```
+
+for every controlled downstream component and node.
+
+The wrapper should eventually accept separate collections:
+
+```text
+boundary circuits
+downstream closed-loop circuits
+```
+
+Do not generalize the wrapper until the actual CRIMSON downstream circuit
+ownership types and construction sequence have been verified.
+
+### Coupling Mathematics
+
+Independent boundary circuits currently expose one diagonal affine law per
+surface:
+
+```text
+P_i = dp_dq_i * Q_i + Hop_i
+```
+
+A shared closed-loop system may mathematically require:
+
+```text
+P_i = sum_j M_ij Q_j + S_i
+```
+
+where changing flow at one interface can affect pressure at another interface.
+
+Before implementing closed-loop coupling, verify from CRIMSON whether:
+
+```text
+1. The shared closed-loop solve is reduced internally to one scalar
+   dp_dq_i/Hop_i pair per surface, or
+
+2. The higher-dimensional solver consumes cross-surface terms through a
+   coupled matrix/operator.
+```
+
+This is the principal mathematical question. The 1D characteristic boundary
+solve cannot assume diagonal interface laws until CRIMSON's closed-loop
+coefficient path has been traced.
+
+### Timestep Lifecycle
+
+The complete closed-loop system should follow a global lifecycle:
+
+```text
+for every timestep n:
+
+  initialize all boundary and downstream circuits
+
+  compute all required interface laws
+
+  solve every STARFiSh boundary characteristic
+
+  collect final P_i/Q_i from all interfaces
+
+  update the connected CRIMSON circuit system once
+
+  finalize all boundary and downstream circuit histories once
+
+  update all Python/native controllers once
+```
+
+No individual boundary should independently advance or finalize the downstream
+closed-loop state.
+
+### Recommended Closed-Loop Implementation Order
+
+Proceed in separate reviewable stages:
+
+```text
+1. Read and document the four CRIMSON closed-loop classes and the corresponding
+   BoundaryConditionManager paths.
+
+2. Trace the exact interface coefficient form used by CRIMSON closed-loop
+   simulations.
+
+3. Build a standalone check using one existing CRIMSON closed-loop fixture.
+
+4. Verify circuit counts, subsection connections, and controller counts.
+
+5. Advance one timestep entirely inside the standalone CRIMSON check.
+
+6. Compare generated pressure, flow, and volume histories against the original
+   CRIMSON fixture.
+
+7. Generalize CrimsonControlSystems to include downstream circuits.
+
+8. Introduce a system-level closed-loop owner behind the STARFiSh interface.
+
+9. Connect STARFiSh only after the standalone CRIMSON lifecycle is equivalent.
+```
+
+Closed-loop work should not alter the already verified independent boundary
+controller path until these checks pass.
+
 ### Netlist Output Files
 
 CRIMSON's netlist writer emits pressure, flow, and volume history files:
