@@ -13,3 +13,15 @@ This repository contains the historical STARFiSh codebase together with subseque
 ## Status
 
 STARFiSh is research software under active development. Users should consult branch-specific documentation when working with experimental or specialised features.
+
+
+## Development workflow
+
+STARFiSh is a research software project. We favour a lightweight and pragmatic workflow.
+
+* Keep the main branch reasonably stable.
+* Use feature branches for substantial developments.
+* Merge mature changes through pull requests when practical.
+* Avoid unnecessary long-lived branches.
+* Preserve important historical states through branches and tags.
+
