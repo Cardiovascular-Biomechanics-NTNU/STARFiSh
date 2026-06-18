@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<netlistCircuits>
+	<circuit>
+		<circuitIndex>1</circuitIndex>
+		<components>
+			<component>
+				<index>1</index>
+				<type>resistor</type>
+				<startNodeIndex>1</startNodeIndex>
+				<endNodeIndex>2</endNodeIndex>
+				<parameterValue>100.0</parameterValue>
+				<prescribedFlowType>threeDInterface</prescribedFlowType>
+				<control>
+					<type>customPython</type>
+					<source>constantResistanceController</source>
+				</control>
+			</component>
+		</components>
+		<nodes>
+			<node>
+				<index>1</index>
+				<initialPressure>1000.0</initialPressure>
+				<isAt3DInterface>true</isAt3DInterface>
+			</node>
+			<node>
+				<index>2</index>
+				<initialPressure>0.0</initialPressure>
+				<prescribedPressureType>fixed</prescribedPressureType>
+			</node>
+		</nodes>
+	</circuit>
+</netlistCircuits>
