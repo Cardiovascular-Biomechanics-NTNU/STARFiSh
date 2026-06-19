@@ -1,15 +1,21 @@
+"""STARFiSh-facing adapter for the isolated CRIMSON netlist worker."""
+
+import atexit
 import os
-import sys
+
+from UtilityLib.crimsonNetlistWorkerClient import CrimsonNetlistWorkerClient
 
 
 class CrimsonNetlistAdapter(object):
     """
-    Thin Python wrapper around the compiled CRIMSON bridge.
+    Preserve STARFiSh's netlist adapter API while using a worker subprocess.
 
-    NetlistBoundaryManager owns the STARFiSh-side coupling state and decides
-    which surface is being queried. This adapter only loads one global
-    netlist_surfaces.xml file and forwards coefficient/state calls to
-    ext/StarfishBridge.cpp through the nanobind module.
+    `NetlistBoundaryManager` owns surface coordination and decides when a
+    global timestep starts or finishes. This adapter translates that existing
+    API into calls on `CrimsonNetlistWorkerClient`.
+
+    The CRIMSON worker owns all circuit histories and Python 2 controller state.
+    It remains alive from `load()` until `close()` or Python process exit.
     """
 
     def __init__(
@@ -20,197 +26,238 @@ class CrimsonNetlistAdapter(object):
         delt=None,
         surface_ids=None,
         output_directory=None,
+        worker_executable=None,
     ):
         """
-        Store the one CRIMSON netlist file and bridge time-integration settings.
+        Store simulation-scoped CRIMSON configuration without starting CRIMSON.
 
-        No STARFiSh vessel or boundary metadata belongs here. Surface selection
-        is passed through each method call from NetlistBoundaryManager.
+        The worker is loaded lazily so fake `Rtilde/S` cases never initialize
+        PETSc, MPI, CRIMSON, or Python 2.
         """
         self.netlist_xml = os.path.abspath(netlist_xml)
-        self.hstep = hstep
-        self.alfi = alfi
-        self.delt = delt
-        self.surface_ids = sorted(set(int(surface_id) for surface_id in (surface_ids or [])))
-        self.output_directory = (
-            os.path.abspath(output_directory) if output_directory is not None else None
+        self.hstep = int(hstep)
+        self.alfi = float(alfi)
+        self.delt = None if delt is None else float(delt)
+        self.surface_ids = sorted(
+            set(int(surface_id) for surface_id in (surface_ids or []))
         )
-        self._bridge = None
+        self.output_directory = (
+            os.path.abspath(output_directory)
+            if output_directory is not None
+            else None
+        )
+        self.worker_executable = worker_executable
+        self._client = None
+
+        # STARFiSh currently has no explicit simulation-wide adapter teardown.
+        # Register a final safety net so successful runs do not leave the
+        # persistent worker alive when the Python process exits.
+        atexit.register(self.close)
 
     def set_output_directory(self, output_directory):
         """
-        Set the directory used for CRIMSON netlist pressure/flow/volume files.
+        Set where CRIMSON pressure, flow, and volume histories are written.
 
-        The compiled bridge writes CRIMSON's normal relative output file names
-        from this directory, keeping them beside the current STARFiSh HDF5/XML
-        outputs.
+        The normal solver calls this before lazy loading. If it is called after
+        loading, forward the change to the existing runtime.
         """
         self.output_directory = (
-            os.path.abspath(output_directory) if output_directory is not None else None
+            os.path.abspath(output_directory)
+            if output_directory is not None
+            else None
         )
-        if self._bridge is not None and self.output_directory is not None:
-            self._bridge.set_output_directory(self.output_directory)
+        if self._client is not None and self.output_directory is not None:
+            self._client.set_output_directory(self.output_directory)
 
     def register_surfaces(self, surface_ids):
         """
-        Register the case-level STARFiSh surface ids used by the C++ bridge.
+        Add STARFiSh-facing surface IDs before the worker runtime is loaded.
 
-        Surface ids are STARFiSh-facing labels. The bridge maps their sorted
-        order to CRIMSON circuit indices in netlist_surfaces.xml.
+        CRIMSON maps sorted surface IDs to XML circuit order while loading one
+        connected circuit system. A loaded runtime cannot safely add another
+        surface because that would change the established mapping and controller
+        pointers.
         """
         new_ids = sorted(set(int(surface_id) for surface_id in surface_ids))
         merged_ids = sorted(set(self.surface_ids).union(new_ids))
         if merged_ids == self.surface_ids:
             return None
+        if self._client is not None:
+            raise RuntimeError(
+                "Cannot register new CRIMSON netlist surfaces after the worker "
+                "runtime has been loaded."
+            )
         self.surface_ids = merged_ids
-        if self._bridge is not None:
-            self._bridge.register_surfaces(self.surface_ids)
         return None
 
     def load(self, dt=None):
         """
-        Import the nanobind module, construct `CrimsonBridge`, and load XML.
+        Start the isolated worker and load the global netlist circuit system.
 
-        CRIMSON's XML reader still has a current-directory assumption for
-        netlist_surfaces.xml, so loading temporarily runs from the XML
-        directory. After this method returns, Python code talks to
-        ext/StarfishBridge.cpp through `self._bridge`.
+        Returns this adapter for compatibility with the previous in-process
+        nanobind implementation.
         """
-        dt = self._resolve_dt(dt)
-        module = self._import_bridge_module()
-        self._bridge = module.CrimsonBridge(self.hstep, self.alfi, dt)
-        if self.output_directory is not None:
-            self._bridge.set_output_directory(self.output_directory)
-        previous_cwd = os.getcwd()
-        xml_dir = os.path.dirname(self.netlist_xml)
+        if self._client is not None:
+            return self
+
+        resolved_dt = self._resolve_dt(dt)
+        if not self.surface_ids:
+            raise ValueError(
+                "At least one surface ID must be registered before loading "
+                "the CRIMSON netlist worker."
+            )
+
+        client = CrimsonNetlistWorkerClient(
+            worker_executable=self.worker_executable
+        )
         try:
-            if xml_dir:
-                os.chdir(xml_dir)
-            if self.surface_ids:
-                self._bridge.load(self.netlist_xml, self.surface_ids)
-            else:
-                self._bridge.load(self.netlist_xml)
-        finally:
-            os.chdir(previous_cwd)
+            client.load(
+                netlist_xml=self.netlist_xml,
+                output_directory=self.output_directory,
+                hstep=self.hstep,
+                alfi=self.alfi,
+                dt=resolved_dt,
+                surface_ids=self.surface_ids,
+            )
+        except Exception:
+            client.abort()
+            raise
+
+        self._client = client
+        self.delt = resolved_dt
         return self
 
-    def compute_implicit_coefficients(self, surface_id, timestep, time, dt, flow):
+    def compute_implicit_coefficients(
+        self,
+        surface_id,
+        timestep,
+        time,
+        dt,
+        flow,
+    ):
         """
-        Ask CRIMSON for the current surface's Robin coefficients.
-
-        Expected output is `(dp_dq, Hop)` for:
+        Return `(dp_dq, Hop)` for the solve-phase affine interface law.
 
             P_interface = dp_dq * Q_interface + Hop
-
-        The C++ bridge uses `surface_id` to select the corresponding CRIMSON
-        `NetlistCircuit`.
         """
-        bridge = self._ensure_bridge(dt)
-        return bridge.compute_implicit_coefficients(
+        client = self._ensure_client(dt)
+        return client.compute_coefficients(
             int(surface_id),
             int(timestep),
             float(time),
-            float(dt),
             float(flow),
+            float(dt),
         )
 
-    def compute_update_coefficients(self, surface_id, timestep, time, dt, flow):
+    def compute_update_coefficients(
+        self,
+        surface_id,
+        timestep,
+        time,
+        dt,
+        flow,
+    ):
         """
-        Ask CRIMSON for the update-phase coefficients.
+        Return CRIMSON's update/corrector-phase coefficient pair.
 
-        This mirrors CRIMSON's `computeImplicitCoeff_update`, which calls the
-        netlist coefficient computation with `alfi_delt = delt`.
+        This preserves CRIMSON's distinct call using `alfi_delt = dt`.
         """
-        bridge = self._ensure_bridge(dt)
-        return bridge.compute_update_coefficients(
+        client = self._ensure_client(dt)
+        return client.compute_update_coefficients(
             int(surface_id),
             int(timestep),
             float(time),
-            float(dt),
             float(flow),
+            float(dt),
         )
 
     def flow_permitted(self, surface_id, dt=None):
-        """
-        Return CRIMSON's current diode/interface flow-permission state.
-        """
-        bridge = self._ensure_bridge(dt)
-        return bool(bridge.flow_permitted(int(surface_id)))
+        """Return whether the current CRIMSON interface permits flow."""
+        client = self._ensure_client(dt)
+        return bool(client.flow_permitted(int(surface_id), dt))
 
     def boundary_condition_type_changed(self, surface_id, dt=None):
-        """
-        Return whether CRIMSON reports a boundary-mode change for this surface.
-        """
-        bridge = self._ensure_bridge(dt)
-        return bool(bridge.boundary_condition_type_changed(int(surface_id)))
+        """Return CRIMSON's interface boundary-mode transition flag."""
+        client = self._ensure_client(dt)
+        return bool(
+            client.boundary_condition_type_changed(int(surface_id), dt)
+        )
 
     def start_timestep(self, timestep, time, dt):
         """
-        Run CRIMSON's per-timestep netlist preparation phase.
-
-        This mirrors `initialiseAtStartOfTimestep()` in CRIMSON. It must happen
-        once before coefficients are requested for a timestep so diode switching,
-        controller updates, and per-step bookkeeping are applied consistently.
+        Run CRIMSON's once-per-global-timestep initialization phase.
         """
-        bridge = self._ensure_bridge(dt)
-        bridge.start_timestep(int(timestep), float(time), float(dt))
-
-    def update_state(self, surface_id, timestep, time, dt, pressure, flow):
-        """
-        Push final STARFiSh interface pressure/flow into CRIMSON.
-
-        This is called after netlistInterface solves the unknown characteristic.
-        For a full multi-surface bridge, CRIMSON should receive final states for
-        all surfaces before finalizing the timestep.
-        """
-        bridge = self._ensure_bridge(dt)
-        bridge.update_state(
-            int(surface_id),
+        client = self._ensure_client(dt)
+        client.start_timestep(
             int(timestep),
             float(time),
             float(dt),
+        )
+
+    def update_state(
+        self,
+        surface_id,
+        timestep,
+        time,
+        dt,
+        pressure,
+        flow,
+    ):
+        """
+        Push final STARFiSh interface pressure/flow into CRIMSON.
+
+        `time` remains in this compatibility signature although CRIMSON's
+        `updateLPN()` call only needs surface, timestep, pressure, and flow.
+        """
+        del time
+        client = self._ensure_client(dt)
+        client.update_state(
+            int(surface_id),
+            int(timestep),
             float(pressure),
             float(flow),
+            float(dt),
         )
 
     def finalize_timestep(self, timestep):
         """
-        Tell CRIMSON that the timestep is complete.
+        Commit histories, write outputs, and execute CRIMSON controllers.
+        """
+        if self._client is not None:
+            self._client.finalize_timestep(int(timestep))
 
-        NetlistBoundaryManager owns the decision of when to call this. The
-        adapter only forwards the call if the bridge has been loaded.
+    def close(self):
         """
-        if self._bridge is not None:
-            self._bridge.finalize_timestep(int(timestep))
+        Gracefully terminate the persistent worker.
 
-    def _ensure_bridge(self, dt):
+        This method is idempotent and can be called explicitly by future
+        simulation-level cleanup code in addition to the registered atexit hook.
         """
-        Load the bridge lazily so fake Rtilde/S tests never touch CRIMSON.
-        """
-        if self._bridge is None:
+        if self._client is None:
+            return
+        client = self._client
+        self._client = None
+        client.close()
+
+    def _ensure_client(self, dt):
+        """Load the worker lazily and return its production client."""
+        if self._client is None:
             self.load(dt)
-        return self._bridge
+        return self._client
 
     def _resolve_dt(self, dt):
-        """
-        Use the call-specific timestep or the adapter's fixed construction dt.
-        """
+        """Resolve and enforce the current fixed-timestep runtime contract."""
         if dt is not None:
-            return float(dt)
+            resolved_dt = float(dt)
+            if self.delt is not None and resolved_dt != float(self.delt):
+                raise ValueError(
+                    "CRIMSON netlist adapter uses fixed dt={}; received dt={}."
+                    .format(self.delt, resolved_dt)
+                )
+            return resolved_dt
         if self.delt is None:
-            raise ValueError("A timestep dt is required before loading the CRIMSON netlist bridge.")
+            raise ValueError(
+                "A timestep dt is required before loading the CRIMSON netlist "
+                "worker."
+            )
         return float(self.delt)
-
-    def _import_bridge_module(self):
-        """
-        Import the compiled nanobind module from the normal path or ext/build.
-        """
-        try:
-            import crimson_starfish_bridge # type: ignore
-            return crimson_starfish_bridge
-        except ImportError:
-            bridge_build_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ext", "build")
-            if bridge_build_dir not in sys.path:
-                sys.path.insert(0, bridge_build_dir)
-            import crimson_starfish_bridge # type: ignore
-            return crimson_starfish_bridge

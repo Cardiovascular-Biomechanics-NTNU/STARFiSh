@@ -1217,6 +1217,11 @@ class VascularNetwork(cSBO.StarfishBaseObject):
             if vesselId in self.boundaryVessels:
                 boundaryResistance = 0
                 for bc in self.boundaryConditions[vesselId]:
+                    # A single vessel can have both its proximal inlet and
+                    # distal outlet in this list. Only the distal boundary
+                    # contributes to the downstream network resistance.
+                    if getattr(bc, 'position', None) != -1:
+                        continue
                     # # if Rtotal is not given evaluate Rtotal := Rc + Zc_vessel
                     try:
                         # # windkessel 3 elements
@@ -1302,6 +1307,11 @@ class VascularNetwork(cSBO.StarfishBaseObject):
             if vesselId in self.boundaryVessels:
                 boundaryResistance = 0
                 for bc in self.boundaryConditions[vesselId]:
+                    # The linearized network model represents downstream
+                    # loads. A proximal heart/netlist is a source, not a
+                    # terminal resistance.
+                    if getattr(bc, 'position', None) != -1:
+                        continue
                     # # if Rtotal is not given evaluate Rtotal := Rc + Zc_vessel
                     try:
                         # # windkessel 3 elements
@@ -1472,6 +1482,75 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         
         self.initialValues = initialValuesWithGravity
 
+    def calculateInitialValuesFromProximalNetlist(self):
+        """
+        Initialize a network whose root inlet is supplied by a Netlist.
+
+        A Type 1 inflow can evaluate its waveform mean and construct an
+        initialization ramp. A heart-style Netlist has no prescribed waveform:
+        it determines the inlet state dynamically during the coupled solve.
+        Therefore the explicit initialization controls are used as the initial
+        1D guesses and no STARFiSh waveform ramp is created.
+        """
+        initialValues = {}
+        root = self.root
+        rootFlow = float(self.initMeanFlow)
+        rootPressure = float(self.initMeanPressure)
+
+        p0 = rootPressure
+        p1 = p0 - self.vessels[root].resistance * rootFlow
+        initialValues[root] = {
+            'Pressure': [p0, p1],
+            'Flow': rootFlow,
+        }
+
+        for leftMother, rightMother, leftDaughter, rightDaughter in self.treeTraverseConnections:
+            if rightMother is not None:
+                logger.warning(
+                    "VascularNetwork: proximal Netlist initialization does "
+                    "not support anastomoses."
+                )
+                continue
+
+            daughterIds = [leftDaughter]
+            if rightDaughter is not None:
+                daughterIds.append(rightDaughter)
+
+            motherFlow = initialValues[leftMother]['Flow']
+            junctionPressure = initialValues[leftMother]['Pressure'][1]
+
+            if len(daughterIds) == 1:
+                daughterFlows = [motherFlow]
+            else:
+                conductances = [1.0 / self.Rcum[daughter] for daughter in daughterIds]
+                totalConductance = sum(conductances)
+                daughterFlows = [
+                    motherFlow * conductance / totalConductance
+                    for conductance in conductances
+                ]
+
+            for daughter, daughterFlow in zip(daughterIds, daughterFlows):
+                daughterPressure = (
+                    junctionPressure
+                    - self.vessels[daughter].resistance * daughterFlow
+                )
+                initialValues[daughter] = {
+                    'Pressure': [junctionPressure, daughterPressure],
+                    'Flow': daughterFlow,
+                }
+
+        if self.venousPool is not None:
+            for initialArray in initialValues.values():
+                initialArray['Pressure'][0] += self.venousPool.P[0]
+                initialArray['Pressure'][1] += self.venousPool.P[0]
+
+        self.initialValues = self.initializeGravityHydrostaticPressure(
+            initialValues,
+            root,
+        )
+        self.initialisationPhaseExist = False
+        self.initPhaseTimeSpan = 0.0
+
     def calculateInitialValues(self):
         """
         This function travers the network tree and calculates the
@@ -1489,15 +1568,21 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         ## find root inflow boundary condition, ie. bc condition with type 1:
         # varying elastance is type 2 and is only initialized with constant pressure
         inflowBoundaryCondition = None
+        proximalNetlistBoundaryCondition = None
         for bc in self.boundaryConditions[root]:
             if bc.type == 1:
                 inflowBoundaryCondition = bc
+            elif isinstance(bc, Netlist) and bc.position == 0:
+                proximalNetlistBoundaryCondition = bc
                 
         if self.venousSystemCollapse == True and self.initialsationMethod != 'ConstantPressure':
             raise NotImplementedError("Auto, MeanFlow, Mean Pressure: initialization not implemented for collapsing venous system! \n")
             #exit()
 
         if self.initialsationMethod == 'Auto':
+            if inflowBoundaryCondition is None and proximalNetlistBoundaryCondition is not None:
+                self.calculateInitialValuesFromProximalNetlist()
+                return
             try:
                 meanInflow, self.initPhaseTimeSpan = inflowBoundaryCondition.findMeanFlowAndMeanTime(quiet=self.quiet)
                 self.initialisationPhaseExist = True
@@ -1508,9 +1593,15 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         elif self.initialsationMethod == 'MeanFlow':
             try:
                 meanInflow = self.initMeanFlow
-                # # addjust bc condition
-                xxx, self.initPhaseTimeSpan = inflowBoundaryCondition.findMeanFlowAndMeanTime(meanInflow, quiet=self.quiet)
-                self.initialisationPhaseExist = True
+                if inflowBoundaryCondition is not None:
+                    # # addjust bc condition
+                    xxx, self.initPhaseTimeSpan = inflowBoundaryCondition.findMeanFlowAndMeanTime(meanInflow, quiet=self.quiet)
+                    self.initialisationPhaseExist = True
+                elif proximalNetlistBoundaryCondition is not None:
+                    self.initialisationPhaseExist = False
+                    self.initPhaseTimeSpan = 0.0
+                else:
+                    raise ValueError("No root inflow boundary condition is defined.")
             except Exception:
                 self.exception("classVascularNetwork: Unable to set given meanFlow at inflow point")
                 #exit()
@@ -1518,7 +1609,9 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         elif self.initialsationMethod == 'MeanPressure':
             try:
                 meanInPressure = self.initMeanPressure
-                self.initialisationPhaseExist = True
+                self.initialisationPhaseExist = inflowBoundaryCondition is not None
+                if proximalNetlistBoundaryCondition is not None:
+                    self.initPhaseTimeSpan = 0.0
             except Exception:
                 self.exception("classVascularNetwork: Unable to set given meanFlow at inflow point")
                 #exit()
@@ -1526,8 +1619,15 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         elif self.initialsationMethod == 'AutoLinearSystem':
 
             try:
-                meanInflow, self.initPhaseTimeSpan = inflowBoundaryCondition.findMeanFlowAndMeanTime(quiet=self.quiet)
-                self.initialisationPhaseExist = True
+                if inflowBoundaryCondition is not None:
+                    meanInflow, self.initPhaseTimeSpan = inflowBoundaryCondition.findMeanFlowAndMeanTime(quiet=self.quiet)
+                    self.initialisationPhaseExist = True
+                elif proximalNetlistBoundaryCondition is not None:
+                    meanInflow = self.initMeanFlow
+                    self.initialisationPhaseExist = False
+                    self.initPhaseTimeSpan = 0.0
+                else:
+                    raise ValueError("No root inflow boundary condition is defined.")
 
             except Exception:
                 self.exception("classVascularNetwork: Unable to evaluate time shift to 0 at inflow point")

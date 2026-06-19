@@ -285,6 +285,28 @@ int main()
                               << runtime->controllerCount()
                               << std::endl;
                 }
+                else if (command == "START_AND_STATUS") {
+                    requireRuntime(runtime);
+                    // format: START_AND_STATUS timestep time num_surfaces <surf_id> ...
+                    if (arguments.size() < 4) {
+                        throw std::runtime_error("START_AND_STATUS expects timestep, time, num_surfaces, and surface IDs.");
+                    }
+                    int timestep = parseValue<int>(arguments[1], "timestep");
+                    double time = parseValue<double>(arguments[2], "time");
+                    int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
+                    if (arguments.size() != 4 + num_surfaces) {
+                        throw std::runtime_error("START_AND_STATUS arguments mismatch with num_surfaces.");
+                    }
+                    runtime->startTimestep(timestep, time);
+                    std::cout << "STARFISH_START_STATUS";
+                    for (int i = 0; i < num_surfaces; ++i) {
+                        int surfaceId = parseValue<int>(arguments[4 + i], "surface ID");
+                        bool flowPermitted = runtime->flowPermitted(surfaceId);
+                        bool typeChanged = runtime->boundaryConditionTypeChanged(surfaceId);
+                        std::cout << " " << (flowPermitted ? 1 : 0) << " " << (typeChanged ? 1 : 0);
+                    }
+                    std::cout << std::endl;
+                }
                 else if (command == "START") {
                     requireRuntime(runtime);
                     if (arguments.size() != 3) {
@@ -313,6 +335,97 @@ int main()
                               << " "
                               << coefficients.second
                               << std::endl;
+                }
+                else if (command == "COEFFICIENTS_ALL") {
+                    requireRuntime(runtime);
+                    // format: COEFFICIENTS_ALL timestep time num_surfaces <surf_id flow> ...
+                    if (arguments.size() < 4) {
+                        throw std::runtime_error("COEFFICIENTS_ALL expects timestep, time, num_surfaces, and pairs of surface ID and flow.");
+                    }
+                    int timestep = parseValue<int>(arguments[1], "timestep");
+                    double time = parseValue<double>(arguments[2], "time");
+                    int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
+                    if (arguments.size() != 4 + 2 * num_surfaces) {
+                        throw std::runtime_error("COEFFICIENTS_ALL arguments mismatch with num_surfaces.");
+                    }
+                    std::cout << "STARFISH_COEFFICIENTS_ALL";
+                    for (int i = 0; i < num_surfaces; ++i) {
+                        int surface_id = parseValue<int>(arguments[4 + 2*i], "surface ID");
+                        double flow = parseValue<double>(arguments[5 + 2*i], "flow");
+                        const std::pair<double, double> coefficients = 
+                            runtime->computeCoefficients(surface_id, timestep, time, flow);
+                        std::cout << " " << coefficients.first << " " << coefficients.second;
+                    }
+                    std::cout << std::endl;
+                }
+                else if (command == "UPDATE_ALL_AND_FINALIZE") {
+                    requireRuntime(runtime);
+                    // format: UPDATE_ALL_AND_FINALIZE timestep time num_surfaces <surf_id pressure flow> ...
+                    if (arguments.size() < 4) {
+                        throw std::runtime_error("UPDATE_ALL_AND_FINALIZE expects timestep, time, num_surfaces, and triplets of surface ID, pressure, flow.");
+                    }
+                    int timestep = parseValue<int>(arguments[1], "timestep");
+                    double time = parseValue<double>(arguments[2], "time");
+                    int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
+                    if (arguments.size() != 4 + 3 * num_surfaces) {
+                        throw std::runtime_error("UPDATE_ALL_AND_FINALIZE arguments mismatch with num_surfaces.");
+                    }
+                    for (int i = 0; i < num_surfaces; ++i) {
+                        int surface_id = parseValue<int>(arguments[4 + 3*i], "surface ID");
+                        double pressure = parseValue<double>(arguments[5 + 3*i], "pressure");
+                        double flow = parseValue<double>(arguments[6 + 3*i], "flow");
+                        runtime->computeUpdateCoefficients(surface_id, timestep, time, flow);
+                        runtime->updateState(surface_id, timestep, pressure, flow);
+                    }
+                    runtime->finalizeTimestep(timestep);
+                    printOk();
+                }
+                else if (command == "UPDATE_COEFFICIENTS") {
+                    requireRuntime(runtime);
+                    if (arguments.size() != 5) {
+                        throw std::runtime_error(
+                            "UPDATE_COEFFICIENTS expects surface, timestep, time, and flow.");
+                    }
+                    const std::pair<double, double> coefficients =
+                        runtime->computeUpdateCoefficients(
+                            parseValue<int>(arguments[1], "surface ID"),
+                            parseValue<int>(arguments[2], "timestep"),
+                            parseValue<double>(arguments[3], "time"),
+                            parseValue<double>(arguments[4], "flow"));
+                    std::cout << "STARFISH_UPDATE_COEFFICIENTS "
+                              << coefficients.first
+                              << " "
+                              << coefficients.second
+                              << std::endl;
+                }
+                else if (command == "INTERFACE_STATUS") {
+                    requireRuntime(runtime);
+                    if (arguments.size() != 2) {
+                        throw std::runtime_error(
+                            "INTERFACE_STATUS expects a surface ID.");
+                    }
+
+                    const int surfaceId =
+                        parseValue<int>(arguments[1], "surface ID");
+                    const bool flowPermitted =
+                        runtime->flowPermitted(surfaceId);
+                    const bool typeChanged =
+                        runtime->boundaryConditionTypeChanged(surfaceId);
+
+                    std::cout << "STARFISH_INTERFACE_STATUS "
+                              << (flowPermitted ? 1 : 0)
+                              << " "
+                              << (typeChanged ? 1 : 0)
+                              << std::endl;
+                }
+                else if (command == "SET_OUTPUT_DIRECTORY") {
+                    requireRuntime(runtime);
+                    if (arguments.size() != 2) {
+                        throw std::runtime_error(
+                            "SET_OUTPUT_DIRECTORY expects one path.");
+                    }
+                    runtime->setOutputDirectory(arguments[1]);
+                    printOk();
                 }
                 else if (command == "UPDATE") {
                     requireRuntime(runtime);

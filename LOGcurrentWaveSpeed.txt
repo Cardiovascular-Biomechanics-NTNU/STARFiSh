@@ -1,1 +1,1 @@
-vessel 0 c_max: 2.022   dt (ms) 3.170078 | res CFL: 0.500 || already best N
+vessel 1 c_max: 2.381   dt (ms) 0.093343 | res CFL: 0.200 || already best N

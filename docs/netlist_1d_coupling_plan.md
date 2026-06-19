@@ -1675,9 +1675,10 @@ ABI failures.
 This is a runtime separation issue, not a reason to reimplement CRIMSON
 controllers in STARFiSh.
 
-### Proposed Full-Controller Architecture
+### Full-Controller Architecture
 
-For full CRIMSON controller compatibility, the clean target is:
+The implemented process architecture for full CRIMSON controller compatibility
+is:
 
 ```text
 STARFiSh Python 3.11
@@ -1714,8 +1715,8 @@ a user-selectable coupling mode.
 
 ### Runtime API Mapping
 
-The standalone CRIMSON executable should expose a small transport API and
-delegate each request directly to `CrimsonNetlistRuntime`:
+The standalone CRIMSON executable exposes a small transport API and
+delegates each request directly to `CrimsonNetlistRuntime`:
 
 ```text
 load
@@ -1832,15 +1833,589 @@ boundary. This preserves STARFiSh as a Python 3 application while allowing the
 existing CRIMSON Python 2 controllers to run unchanged.
 
 `CrimsonNetlistRuntime` is the transport-independent C++ owner of the netlist
-lifecycle. The standalone executable will call it, while the current
+lifecycle. The standalone executable calls it, while the current
 `StarfishBridge` remains the in-process Python 3 transport during migration.
 The runtime approach is therefore an addition first and a replacement for the
 bridge's duplicated lifecycle ownership only after passive and controlled
 netlist equivalence has been verified.
 
+### Performance Cost of the Worker Process
+
+The worker is persistent. PETSc, the CRIMSON circuits, the Python 2
+interpreter, controller modules, and controller state are initialized once and
+remain in memory for the entire STARFiSh simulation. The design does not start
+a new process or reload Python for each timestep.
+
+The additional cost comes from synchronous communication across the process
+boundary. With the current scalar command protocol and `N` netlist surfaces,
+one timestep uses:
+
+```text
+1 x START
+N x INTERFACE_STATUS
+N x COEFFICIENTS
+N x UPDATE_COEFFICIENTS
+N x UPDATE
+1 x FINALIZE
+```
+
+Therefore, the current transport requires:
+
+```text
+4*N + 2 request/response exchanges per timestep
+```
+
+For one surface this is six exchanges. For ten surfaces it is 42 exchanges.
+Each exchange includes:
+
+```text
+Python 3 command formatting
+pipe write and operating-system scheduling
+C++ tokenization and numeric parsing
+the requested CRIMSON operation
+C++ response formatting
+pipe read and Python 3 response parsing
+```
+
+The netlist solve and controller update are unchanged from CRIMSON. The new
+overhead is the pipe transport and text conversion around those operations.
+Only scalar interface data are transferred; full circuit state and Python
+objects remain in the worker.
+
+The practical impact depends on the number of STARFiSh timesteps and surfaces.
+For example, 100,000 timesteps with one surface require 600,000 synchronous
+exchanges. Even a small per-message cost can become visible because the
+STARFiSh 1D update is comparatively inexpensive. This cost must be benchmarked
+with representative cases rather than estimated from the controller test.
+
+The first implementation prioritizes correctness and inspectability. If the
+transport becomes significant, the next optimization should batch all surfaces:
+
+```text
+COMPUTE_ALL timestep time Q_1 Q_2 ... Q_N
+  <- dp_dq_1 Hop_1 dp_dq_2 Hop_2 ... dp_dq_N Hop_N
+
+COMPUTE_UPDATE_ALL timestep time Q_1 Q_2 ... Q_N
+  <- dp_dq_1 Hop_1 dp_dq_2 Hop_2 ... dp_dq_N Hop_N
+
+UPDATE_ALL timestep P_1 Q_1 P_2 Q_2 ... P_N Q_N
+  <- STARFISH_OK
+```
+
+That reduces the number of exchanges to approximately six per timestep,
+independent of surface count:
+
+```text
+START
+STATUS_ALL
+COMPUTE_ALL
+COMPUTE_UPDATE_ALL
+UPDATE_ALL
+FINALIZE
+```
+
+Binary messages, Unix-domain sockets, or shared memory should only be
+considered after profiling. The current line-oriented text protocol is easier
+to inspect, log, and debug while the coupling lifecycle is still being
+validated.
+
+### How Original CRIMSON Executes Python Controllers
+
+The original CRIMSON flow solver does not use a Python subprocess for netlist
+controllers. Its runtime structure is:
+
+```text
+one CRIMSON process
+  +-- Fortran 3D flow solver
+  +-- C++ BoundaryConditionManager
+  +-- C++ NetlistCircuit objects
+  +-- C++ ControlSystemsManager
+  +-- embedded Python 2.7 interpreter
+```
+
+CRIMSON initializes Python 2 directly inside the flow-solver process using the
+Python C API. C++ controller objects retain `PyObject*` references and invoke
+the Python controller methods directly. No text serialization or
+operating-system process communication occurs.
+
+The important lifecycle is:
+
+```text
+initialize embedded Python 2
+load controller modules
+create C++ controller objects
+give controllers pointers to CRIMSON circuit parameters and state
+
+for each timestep:
+  solve and finalize the netlist state
+  call Python/native controller updates
+  write returned parameter values through the retained C++ pointers
+
+destroy controller objects
+finalize Python
+```
+
+A custom Python parameter controller receives values such as:
+
+```python
+updateControl(
+    currentParameterValue,
+    delt,
+    dictionaryOfPressuresByNodeIndex,
+    dictionaryOfFlowsByComponentIndex,
+    dictionaryOfVolumesByComponentIndex,
+)
+```
+
+The controller returns a new parameter value. CRIMSON writes that value into
+the controlled resistor, compliance, pressure, flow, or other circuit
+parameter. The next timestep's netlist matrix and `(dp_dq, Hop)` therefore use
+the updated parameter.
+
+This same-process design is faster than the STARFiSh worker transport, but it
+cannot safely be copied into STARFiSh's Python 3 process. Loading the legacy
+Python 2.7 ABI into a process that is already running Python 3.11 causes symbol
+and interpreter-state conflicts. The worker preserves CRIMSON's original
+embedded-Python behavior inside its own process while isolating it from
+STARFiSh.
+
+### Worker Process and Text Protocol
+
+Original CRIMSON has no netlist subprocess protocol. The following protocol is
+specific to the STARFiSh integration:
+
+```text
+STARFiSh Python 3.11 process
+  |
+  | stdin/stdout text commands
+  v
+crimson_netlist_worker process
+  +-- CrimsonNetlistRuntime
+  +-- CRIMSON ControlSystemsManager
+  +-- CRIMSON NetlistCircuit objects
+  +-- embedded Python 2.7
+```
+
+The worker starts once and prints:
+
+```text
+STARFISH_READY
+```
+
+Paths may be quoted, and a comma-separated surface list maps STARFiSh surface
+IDs to CRIMSON circuit order.
+
+#### `LOAD`
+
+Simple form:
+
+```text
+LOAD "<netlist XML>" "<output directory>" hstep alfi dt surfaceIds
+```
+
+Example:
+
+```text
+LOAD "/case/netlist_surfaces.xml" "/case/results" 10 1.0 0.001 1,2
+```
+
+Extended form:
+
+```text
+LOAD "<netlist XML>" "<output directory>" hstep alfi dt \
+     startingTimestep restartInterval masterControllerPresent surfaceIds
+```
+
+The output directory may be `-` when no explicit output directory is needed.
+The response includes the number of registered controllers:
+
+```text
+STARFISH_OK LOAD controllerCount
+```
+
+#### `START`
+
+```text
+START timestep time
+```
+
+Calls:
+
+```cpp
+runtime.startTimestep(timestep, time);
+```
+
+Response:
+
+```text
+STARFISH_OK
+```
+
+#### `COEFFICIENTS`
+
+```text
+COEFFICIENTS surfaceId timestep time flow
+```
+
+Calls:
+
+```cpp
+runtime.computeCoefficients(surfaceId, timestep, time, flow);
+```
+
+Response:
+
+```text
+STARFISH_COEFFICIENTS dp_dq Hop
+```
+
+STARFiSh combines this affine law with the known vessel characteristic to
+solve the unknown characteristic.
+
+#### `UPDATE_COEFFICIENTS`
+
+```text
+UPDATE_COEFFICIENTS surfaceId timestep time flow
+```
+
+Calls:
+
+```cpp
+runtime.computeUpdateCoefficients(surfaceId, timestep, time, flow);
+```
+
+Response:
+
+```text
+STARFISH_UPDATE_COEFFICIENTS dp_dq Hop
+```
+
+This preserves CRIMSON's corrector/update path, which forms differential
+component terms with `dt` rather than solve-phase `alfi * dt`.
+
+#### `INTERFACE_STATUS`
+
+```text
+INTERFACE_STATUS surfaceId
+```
+
+Calls:
+
+```cpp
+runtime.flowPermitted(surfaceId);
+runtime.boundaryConditionTypeChanged(surfaceId);
+```
+
+Response:
+
+```text
+STARFISH_INTERFACE_STATUS flowPermitted typeChanged
+```
+
+The flags are encoded as `0` or `1`. They are returned together because they
+describe the same CRIMSON interface state:
+
+```text
+flowPermitted = 0
+  A non-leaky closed diode blocks the interface. STARFiSh must use its
+  prescribed zero-flow boundary treatment instead of the affine Robin law.
+
+typeChanged = 1
+  CRIMSON reports that the interface boundary mode has just changed.
+```
+
+The production Python client exposes:
+
+```python
+interface_status(surface_id)
+flow_permitted(surface_id)
+boundary_condition_type_changed(surface_id)
+```
+
+#### `SET_OUTPUT_DIRECTORY`
+
+```text
+SET_OUTPUT_DIRECTORY "<output directory>"
+```
+
+Calls:
+
+```cpp
+runtime.setOutputDirectory(outputDirectory);
+```
+
+Response:
+
+```text
+STARFISH_OK
+```
+
+This preserves the existing adapter behavior where STARFiSh may assign the
+final `results/SolutionData_<number>` directory after creating the coupling
+objects but before CRIMSON writes end-of-timestep histories.
+
+#### `UPDATE`
+
+```text
+UPDATE surfaceId timestep pressure flow
+```
+
+Calls:
+
+```cpp
+runtime.updateState(surfaceId, timestep, pressure, flow);
+```
+
+Response:
+
+```text
+STARFISH_OK
+```
+
+#### `FINALIZE`
+
+```text
+FINALIZE timestep
+```
+
+Calls:
+
+```cpp
+runtime.finalizeTimestep(timestep);
+```
+
+This commits circuit histories, writes pressure/flow/volume output files, and
+runs Python and native controllers. The response is:
+
+```text
+STARFISH_OK
+```
+
+#### `QUIT`
+
+```text
+QUIT
+```
+
+The worker acknowledges the command and destroys objects in this order:
+
+```text
+CrimsonNetlistRuntime and controller objects
+NetlistXmlReader singleton
+Python 2 interpreter
+PETSc/MPI
+```
+
+Recoverable command failures use:
+
+```text
+STARFISH_ERROR message
+```
+
+Startup or outer-lifecycle failures use:
+
+```text
+STARFISH_FATAL message
+```
+
+Every machine-readable response starts with `STARFISH_` because CRIMSON may
+write unrelated diagnostics to the same output stream. The Python 3 client must
+ignore unrelated lines, stop on `STARFISH_ERROR` or `STARFISH_FATAL`, and wait
+for the expected prefixed response.
+
+The worker protocol now transports both diode/interface status flags. The
+remaining integration task is to route these production-client methods through
+`CrimsonNetlistAdapter`. `NetworkLib/netlistInterface.py` already consumes
+`flow_permitted`; handling of the `boundary_condition_type_changed` transition
+flag still requires an explicit STARFiSh-side policy and regression fixture.
+
+### C++ File Responsibilities
+
+The production files deliberately separate physics ownership, controller
+ownership, Python initialization, and communication.
+
+#### `ext/StarfishBridge.cpp`
+
+This is the existing in-process bridge:
+
+```text
+STARFiSh Python 3
+  -> nanobind
+  -> StarfishBridge
+  -> NetlistCircuit
+```
+
+It owns CRIMSON circuit objects, interface pressure/flow storage, coefficient
+calls, state updates, finalization, and output writing. It supports passive
+netlists and remains useful as a migration baseline.
+
+Its limitation is architectural: it executes inside STARFiSh's Python 3
+process, so it cannot safely link and initialize the Python 2 controller
+runtime. It should remain available until worker results are compared against
+existing passive resistor, Windkessel, and multi-surface baselines. After the
+worker path becomes authoritative, duplicate lifecycle ownership should be
+removed from this class.
+
+#### `ext/bindings.cpp`
+
+This file defines the nanobind module:
+
+```python
+crimson_starfish_bridge
+```
+
+It exposes `StarfishBridge` to Python 3. It belongs only to the existing
+in-process bridge and is not used by the standalone worker.
+
+#### `ext/CrimsonNetlistRuntime.hxx` and `.cpp`
+
+`CrimsonNetlistRuntime` is the transport-independent CRIMSON engine used by the
+new architecture. It does not know about:
+
+```text
+nanobind
+Python 3
+stdin/stdout
+subprocess management
+STARFiSh characteristic equations
+```
+
+It owns:
+
+```text
+surfaceId -> NetlistCircuit mapping
+stable pressure and flow scalar storage
+CrimsonControlSystems
+output directory
+once-per-timestep lifecycle state
+```
+
+Its public methods are the process-neutral API:
+
+```cpp
+load(...)
+setOutputDirectory(...)
+startTimestep(...)
+computeCoefficients(...)
+computeUpdateCoefficients(...)
+flowPermitted(...)
+boundaryConditionTypeChanged(...)
+updateState(...)
+finalizeTimestep(...)
+controllerCount()
+```
+
+This class should remain the only owner of the normal boundary-netlist
+lifecycle used by the worker.
+
+#### `ext/CrimsonControlSystems.hxx` and `.cpp`
+
+This is a thin adapter around CRIMSON's existing
+`ControlSystemsManager`. It does not implement controller equations.
+
+It reproduces the relevant registration loops from:
+
+```cpp
+BoundaryConditionManager::createControlSystems()
+```
+
+The adapter:
+
+```text
+reads component and node controller declarations from NetlistXmlReader
+registers controllers against initialized NetlistCircuit objects
+retains CRIMSON's controller ordering and broadcast behavior
+delegates updates to updateBoundaryConditionControlSystems()
+reports the number of registered controllers
+```
+
+Controller objects retain pointers into circuit state, so registration occurs
+only after every circuit has been initialized.
+
+#### `ext/CrimsonPythonRuntime.hxx` and `.cpp`
+
+This file owns only the embedded Python 2 setup required by CRIMSON
+controllers. It provides:
+
+```cpp
+initialisePython();
+safe_Py_DECREF(...);
+```
+
+It configures the Python 2 home, adds CRIMSON's
+`basicControlScripts/lib` directory to `sys.path`, verifies that
+`CRIMSONPython` can be imported, and supplies the helper symbol expected by
+CRIMSON controller code.
+
+It must be linked into the worker and controller tests only. It must never be
+linked into the Python 3 nanobind module.
+
+#### `ext/CrimsonNetlistWorker.cpp`
+
+This is the persistent process transport. It:
+
+```text
+initializes PETSc and Python 2
+owns one CrimsonNetlistRuntime
+parses and validates text commands
+calls the corresponding runtime methods
+writes prefixed responses
+keeps circuit/controller histories alive between commands
+performs ordered shutdown
+```
+
+It contains no netlist equations and no STARFiSh characteristic mathematics.
+Those remain in CRIMSON and `NetworkLib/netlistInterface.py`, respectively.
+
+### Verification Files
+
+The tests are layered so failures identify which part of the architecture is
+incorrect:
+
+```text
+CrimsonPythonRuntimeCheck.cpp
+  Python 2 initialization and CRIMSONPython import.
+
+CrimsonControllerCheck.cpp
+  Direct invocation of a minimal Python controller.
+
+CrimsonControlSystemsCheck.cpp
+  Controller registration through CRIMSON ControlSystemsManager and direct
+  verification that resistance and dp_dq change from 100 to 200.
+
+CrimsonNetlistRuntimeCheck.cpp
+  Passive resistor lifecycle through CrimsonNetlistRuntime with zero
+  controllers and output-file verification.
+
+CrimsonNetlistControlledRuntimeCheck.cpp
+  Integrated controlled lifecycle through CrimsonNetlistRuntime; the
+  timestep-0 controller update changes timestep-1 dp_dq from 100 to 200.
+
+CrimsonNetlistWorkerProtocolCheck.py
+  Python 3 launches the standalone worker, exercises the complete text
+  protocol, checks quoted paths, verifies output files, and confirms the
+  100-to-200 controller effect across the process boundary.
+
+CrimsonNetlistAdapterWorkerCheck.py
+  Exercises every CrimsonNetlistAdapter method used by NetlistBoundaryManager,
+  including solve/update coefficients, interface status, post-load output
+  directory changes, state update, finalization, and explicit shutdown.
+```
+
+The current verification chain proves that:
+
+```text
+Python 2 initializes independently
+CRIMSON controllers execute unchanged
+controllers mutate real NetlistCircuit parameters
+CrimsonNetlistRuntime preserves the CRIMSON timestep ordering
+the standalone worker preserves state between commands
+Python 3 can communicate with the Python 2 worker successfully
+```
+
 ### Recommended Implementation Order
 
-Before changing the current runtime, proceed in small verified stages:
+The original staged plan remains:
 
 ```text
 1. Preserve the existing passive-netlist baseline results.
@@ -1861,6 +2436,48 @@ Before changing the current runtime, proceed in small verified stages:
 
 7. Only after equivalence is demonstrated, route normal STARFiSh netlist runs
    through the CRIMSON-owned runtime.
+```
+
+Current status:
+
+```text
+Step 1:
+  Existing passive STARFiSh/netlist baseline cases are preserved.
+
+Step 2:
+  Complete. CrimsonPythonRuntime initializes the isolated Python 2.7
+  environment.
+
+Step 3:
+  Complete. CrimsonNetlistRuntime loads and advances a passive resistor.
+
+Step 4:
+  Partially complete. Coefficients and output-file creation are verified.
+  A direct numerical comparison of complete pressure, flow, and volume
+  histories against StarfishBridge remains required.
+
+Step 5:
+  Complete for normal boundary circuits. CrimsonControlSystems registers
+  component and node controllers from netlist_surfaces.xml.
+
+Step 6:
+  Complete. The controlled-resistance test verifies dp_dq changes from
+  100 to 200 on the next timestep.
+
+Additional completed work:
+  crimson_netlist_worker is built as a persistent executable.
+  Python 3 successfully drives its protocol across two controlled timesteps.
+
+Step 7:
+  In progress. CrimsonNetlistAdapter now preserves its manager-facing API while
+  delegating to CrimsonNetlistWorkerClient. The adapter-level protocol
+  regression covers solve/update coefficients, status queries, state update,
+  output-directory changes, finalization, and shutdown.
+
+  The worker should become the authoritative production path only after full
+  passive resistor/Windkessel history equivalence is demonstrated. The
+  STARFiSh response to a boundary-condition type-change transition also still
+  needs to be defined and tested with a diode fixture.
 ```
 
 The build should use the designated CRIMSON Python environment, expected at:

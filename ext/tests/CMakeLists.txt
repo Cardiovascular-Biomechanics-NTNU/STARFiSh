@@ -22,10 +22,17 @@ set(
 
 project(crimson_starfish_tests LANGUAGES CXX)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(STARFISH_EXT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set(
+    STARFISH_WORKER_EXECUTABLE
+    "${STARFISH_EXT_DIR}/build/crimson_netlist_worker"
+    CACHE FILEPATH
+    "Path to the standalone CRIMSON netlist worker")
 set(CRIMSON_LIB_DIR "${CRIMSON_ROOT}/lib")
 set(CRIMSON_PYTHON_INCLUDE_DIR
     "${CRIMSON_PYTHON_ROOT}/include/python2.7")
@@ -180,5 +187,22 @@ add_test(
     NAME crimson_netlist_runtime_check
     COMMAND crimson_netlist_runtime_check)
 add_test(
-    NAME crimson_netlist_controlled_runtime_check
+    NAME CrimsonNetlistControlledRuntimeCheck
     COMMAND crimson_netlist_controlled_runtime_check)
+set_tests_properties(
+    CrimsonNetlistControlledRuntimeCheck
+    PROPERTIES LABELS "controlled;netlist;python-controller")
+add_test(
+    NAME crimson_netlist_worker_protocol_check
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CrimsonNetlistWorkerProtocolCheck.py"
+        --worker "${STARFISH_WORKER_EXECUTABLE}"
+        --fixture "${CMAKE_CURRENT_SOURCE_DIR}/controllers/netlist_surfaces.xml")
+add_test(
+    NAME crimson_netlist_adapter_worker_check
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CrimsonNetlistAdapterWorkerCheck.py"
+        --worker "${STARFISH_WORKER_EXECUTABLE}"
+        --fixture "${CMAKE_CURRENT_SOURCE_DIR}/controllers/netlist_surfaces.xml")

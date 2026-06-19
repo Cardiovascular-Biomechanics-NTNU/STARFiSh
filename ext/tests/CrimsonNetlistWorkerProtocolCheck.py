@@ -1,191 +1,126 @@
 #!/usr/bin/env python3
-"""End-to-end protocol check for the persistent CRIMSON netlist worker."""
+"""End-to-end check of the production CRIMSON worker client."""
 
 from __future__ import annotations
 
 import argparse
 import math
-import selectors
-import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 
-RESPONSE_TIMEOUT_SECONDS = 20.0
+# CTest runs this script from its build directory. Add the repository root
+# explicitly so the test imports the production client rather than duplicating
+# its subprocess and protocol implementation.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from UtilityLib.crimsonNetlistWorkerClient import (  # noqa: E402
+    CrimsonNetlistWorkerClient,
+)
 
 
-def quote_worker_argument(value: str) -> str:
-    """Quote one value for CrimsonNetlistWorker's command tokenizer."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
-class WorkerClient:
-    """Small synchronous client used only to verify the worker protocol."""
-
-    def __init__(self, executable: Path) -> None:
-        self._transcript: list[str] = []
-        self._process = subprocess.Popen(
-            [str(executable)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+def require_close(actual, expected, name):
+    """Require an exact-scale coefficient comparison with a small tolerance."""
+    if not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12):
+        raise RuntimeError(
+            "Unexpected {}: {}; expected {}".format(name, actual, expected)
         )
 
-        if self._process.stdin is None or self._process.stdout is None:
-            raise RuntimeError("Failed to create worker input/output pipes.")
 
-        self._selector = selectors.DefaultSelector()
-        self._selector.register(self._process.stdout, selectors.EVENT_READ)
-        self.expect("STARFISH_READY")
+def run_check(worker, fixture):
+    """
+    Verify controller state persists across the Python 3/worker boundary.
 
-    @property
-    def transcript(self) -> str:
-        return "".join(self._transcript)
-
-    def send(self, command: str, expected_prefix: str) -> str:
-        if self._process.poll() is not None:
-            raise RuntimeError(
-                f"Worker exited before command {command!r}.\n{self.transcript}"
-            )
-
-        assert self._process.stdin is not None
-        self._process.stdin.write(command + "\n")
-        self._process.stdin.flush()
-        return self.expect(expected_prefix)
-
-    def expect(self, expected_prefix: str) -> str:
-        assert self._process.stdout is not None
-
-        while True:
-            events = self._selector.select(RESPONSE_TIMEOUT_SECONDS)
-            if not events:
-                raise RuntimeError(
-                    f"Timed out waiting for {expected_prefix!r}.\n"
-                    f"Worker transcript:\n{self.transcript}"
-                )
-
-            line = self._process.stdout.readline()
-            if line == "":
-                return_code = self._process.poll()
-                raise RuntimeError(
-                    f"Worker exited with code {return_code} while waiting for "
-                    f"{expected_prefix!r}.\nWorker transcript:\n{self.transcript}"
-                )
-
-            self._transcript.append(line)
-            response = line.strip()
-            if response.startswith(("STARFISH_ERROR", "STARFISH_FATAL")):
-                raise RuntimeError(
-                    f"Worker reported an error: {response}\n"
-                    f"Worker transcript:\n{self.transcript}"
-                )
-            if response.startswith(expected_prefix):
-                return response
-
-    def close(self) -> None:
-        if self._process.poll() is not None:
-            if self._process.returncode != 0:
-                raise RuntimeError(
-                    f"Worker exited with code {self._process.returncode}.\n"
-                    f"Worker transcript:\n{self.transcript}"
-                )
-            return
-
-        self.send("QUIT", "STARFISH_OK")
-        try:
-            return_code = self._process.wait(timeout=RESPONSE_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            self._process.kill()
-            self._process.wait()
-            raise RuntimeError(
-                f"Worker did not exit after QUIT.\n{self.transcript}"
-            )
-
-        if return_code != 0:
-            raise RuntimeError(
-                f"Worker exited with code {return_code}.\n"
-                f"Worker transcript:\n{self.transcript}"
-            )
-
-    def abort(self) -> None:
-        if self._process.poll() is None:
-            self._process.kill()
-            self._process.wait()
-
-
-def parse_coefficients(response: str) -> tuple[float, float]:
-    fields = response.split()
-    if len(fields) != 3 or fields[0] != "STARFISH_COEFFICIENTS":
-        raise RuntimeError(f"Malformed coefficient response: {response}")
-    return float(fields[1]), float(fields[2])
-
-
-def require_close(actual: float, expected: float, name: str) -> None:
-    if not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12):
-        raise RuntimeError(f"Unexpected {name}: {actual}; expected {expected}")
-
-
-def run_check(worker: Path, fixture: Path) -> None:
+    The fixture starts with a resistance of 100. Finalizing timestep 0 executes
+    its Python 2 controller, which doubles the resistance. Timestep 1 must
+    therefore return `dp_dq = 200`.
+    """
     if not worker.is_file():
-        raise RuntimeError(f"Worker executable was not found: {worker}")
+        raise RuntimeError("Worker executable was not found: {}".format(worker))
     if not fixture.is_file():
-        raise RuntimeError(f"Controlled netlist fixture was not found: {fixture}")
+        raise RuntimeError(
+            "Controlled netlist fixture was not found: {}".format(fixture)
+        )
 
-    client: WorkerClient | None = None
+    client = CrimsonNetlistWorkerClient(worker_executable=worker)
     with tempfile.TemporaryDirectory(
         prefix="starfish worker protocol "
     ) as output_directory:
         try:
-            client = WorkerClient(worker)
-
-            load_response = client.send(
-                " ".join(
-                    (
-                        "LOAD",
-                        quote_worker_argument(str(fixture)),
-                        quote_worker_argument(output_directory),
-                        "10",
-                        "1.0",
-                        "0.001",
-                        "1",
-                    )
-                ),
-                "STARFISH_OK LOAD",
+            controller_count = client.load(
+                netlist_xml=fixture,
+                output_directory=output_directory,
+                hstep=10,
+                alfi=1.0,
+                dt=0.001,
+                surface_ids=[1],
             )
-            if load_response != "STARFISH_OK LOAD 1":
+            if controller_count != 1:
                 raise RuntimeError(
-                    "The worker did not report exactly one controller: "
-                    + load_response
+                    "Expected one CRIMSON controller; received {}".format(
+                        controller_count
+                    )
                 )
 
-            client.send("START 0 0.001", "STARFISH_OK")
-            coefficients_0 = parse_coefficients(
-                client.send(
-                    "COEFFICIENTS 1 0 0.001 1.0e-5",
-                    "STARFISH_COEFFICIENTS",
+            client.start_timestep(0, 0.001, 0.001)
+            interface_status_0 = client.interface_status(1, 0.001)
+            if interface_status_0 != (True, False):
+                raise RuntimeError(
+                    "Unexpected timestep-0 interface status: {}".format(
+                        interface_status_0
+                    )
                 )
+
+            coefficients_0 = client.compute_coefficients(
+                1,
+                0,
+                0.001,
+                1.0e-5,
+                0.001,
             )
             require_close(coefficients_0[0], 100.0, "timestep-0 dp_dq")
             require_close(coefficients_0[1], 0.0, "timestep-0 Hop")
 
-            client.send("UPDATE 1 0 0.001 1.0e-5", "STARFISH_OK")
-            client.send("FINALIZE 0", "STARFISH_OK")
+            client.update_state(
+                1,
+                0,
+                0.001,
+                1.0e-5,
+                0.001,
+            )
+            client.finalize_timestep(0)
 
-            client.send("START 1 0.002", "STARFISH_OK")
-            coefficients_1 = parse_coefficients(
-                client.send(
-                    "COEFFICIENTS 1 1 0.002 1.0e-5",
-                    "STARFISH_COEFFICIENTS",
+            client.start_timestep(1, 0.002, 0.001)
+            if not client.flow_permitted(1, 0.001):
+                raise RuntimeError(
+                    "The controlled-resistance interface unexpectedly blocked flow."
                 )
+            if client.boundary_condition_type_changed(1, 0.001):
+                raise RuntimeError(
+                    "The controlled-resistance interface unexpectedly changed type."
+                )
+
+            coefficients_1 = client.compute_coefficients(
+                1,
+                1,
+                0.002,
+                1.0e-5,
+                0.001,
             )
             require_close(coefficients_1[0], 200.0, "timestep-1 dp_dq")
             require_close(coefficients_1[1], 0.0, "timestep-1 Hop")
 
-            client.send("UPDATE 1 1 0.002 1.0e-5", "STARFISH_OK")
-            client.send("FINALIZE 1", "STARFISH_OK")
+            client.update_state(
+                1,
+                1,
+                0.002,
+                1.0e-5,
+                0.001,
+            )
+            client.finalize_timestep(1)
             client.close()
 
             output_path = Path(output_directory)
@@ -196,40 +131,40 @@ def run_check(worker: Path, fixture: Path) -> None:
             ):
                 if not (output_path / filename).is_file():
                     raise RuntimeError(
-                        f"Worker did not create expected output: {filename}"
+                        "Worker did not create expected output: {}".format(filename)
                     )
 
-            print("Worker controllers:  1")
-            print(f"dp_dq timestep 0:   {coefficients_0[0]}")
-            print(f"dp_dq timestep 1:   {coefficients_1[0]}")
-            print("CRIMSON worker protocol lifecycle: OK")
+            print("Worker controllers:  {}".format(controller_count))
+            print("Interface status:    {}".format(interface_status_0))
+            print("dp_dq timestep 0:   {}".format(coefficients_0[0]))
+            print("dp_dq timestep 1:   {}".format(coefficients_1[0]))
+            print("Production CRIMSON worker client lifecycle: OK")
         except Exception:
-            if client is not None:
-                client.abort()
-                print("Worker transcript:")
-                print(client.transcript)
+            print("Worker transcript:")
+            print(client.transcript)
+            client.abort()
             raise
 
 
-def main() -> None:
-    repository_root = Path(__file__).resolve().parents[2]
-
+def main():
     parser = argparse.ArgumentParser(
-        description="Verify the CRIMSON netlist worker command protocol."
+        description="Verify the production CRIMSON netlist worker client."
     )
     parser.add_argument(
         "--worker",
         type=Path,
-        default=repository_root / "ext/build/crimson_netlist_worker",
+        default=REPOSITORY_ROOT / "ext/build/crimson_netlist_worker",
     )
     parser.add_argument(
         "--fixture",
         type=Path,
-        default=repository_root / "ext/tests/controllers/netlist_surfaces.xml",
+        default=REPOSITORY_ROOT / "ext/tests/controllers/netlist_surfaces.xml",
     )
     arguments = parser.parse_args()
 
-    run_check(arguments.worker.resolve(), arguments.fixture.resolve())
+    worker = arguments.worker.resolve()
+    fixture = arguments.fixture.resolve()
+    run_check(worker, fixture)
 
 
 if __name__ == "__main__":
