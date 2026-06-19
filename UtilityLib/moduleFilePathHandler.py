@@ -302,10 +302,12 @@ def readConfigFile(options):
         if option == 'WorkingDirectory':
             #try:
             workingDirectory = config.get('Directory Paths', option)
+            workingDirectory = os.path.expanduser(os.path.expandvars(workingDirectory))
             if os.path.isdir(workingDirectory) == False:
                 print(Warning("\n ERROR WorkingDirectory {} does not exist \n".format(workingDirectory)))
                 
                 knownWorkingDirectories = config.get('Directory Paths', 'knownWorkingDirectories').split(',')
+                knownWorkingDirectories = [os.path.expanduser(os.path.expandvars(p.strip())) for p in knownWorkingDirectories if p.strip()]
                 if workingDirectory in knownWorkingDirectories:            
                     knownWorkingDirectories.remove(workingDirectory) 
                     
