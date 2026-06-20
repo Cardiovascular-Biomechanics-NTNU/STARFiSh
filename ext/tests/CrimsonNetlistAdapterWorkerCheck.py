@@ -52,23 +52,18 @@ def run_check(worker, fixture):
             # its final SolutionData directory after loading the coupling.
             adapter.set_output_directory(final_output)
 
-            adapter.start_timestep(0, 0.001, 0.001)
-            if not adapter.flow_permitted(1, 0.001):
-                raise RuntimeError(
-                    "Adapter unexpectedly reported a blocked resistor interface."
-                )
-            if adapter.boundary_condition_type_changed(1, 0.001):
-                raise RuntimeError(
-                    "Adapter unexpectedly reported a boundary-type change."
-                )
-
-            solve_coefficients = adapter.compute_implicit_coefficients(
+            interface_data = adapter.compute_interface_data(
                 1,
                 0,
                 0.001,
                 0.001,
                 1.0e-5,
             )
+            if interface_data[:2] != (True, False):
+                raise RuntimeError(
+                    "Unexpected interface status: {}".format(interface_data[:2])
+                )
+            solve_coefficients = interface_data[2:]
             update_coefficients = adapter.compute_update_coefficients(
                 1,
                 0,
@@ -82,15 +77,12 @@ def run_check(worker, fixture):
             require_close(update_coefficients[0], 100.0, "adapter update dp_dq")
             require_close(update_coefficients[1], 0.0, "adapter update Hop")
 
-            adapter.update_state(
-                1,
+            adapter.update_state_all_and_finalize(
                 0,
                 0.001,
                 0.001,
-                0.001,
-                1.0e-5,
+                [(1, 0.001, 1.0e-5)],
             )
-            adapter.finalize_timestep(0)
             adapter.close()
 
             for filename in (

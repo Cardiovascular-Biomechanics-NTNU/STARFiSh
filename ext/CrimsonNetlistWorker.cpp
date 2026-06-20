@@ -220,6 +220,9 @@ int main()
                         throw std::runtime_error(
                             "QUIT does not accept arguments.");
                     }
+                    if (runtime) {
+                        runtime->flush();
+                    }
                     printOk();
                     break;
                 }
@@ -294,6 +297,10 @@ int main()
                     int timestep = parseValue<int>(arguments[1], "timestep");
                     double time = parseValue<double>(arguments[2], "time");
                     int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
+                    if (num_surfaces <= 0) {
+                        throw std::runtime_error(
+                            "START_AND_STATUS requires at least one surface.");
+                    }
                     if (arguments.size() != 4 + num_surfaces) {
                         throw std::runtime_error("START_AND_STATUS arguments mismatch with num_surfaces.");
                     }
@@ -336,27 +343,27 @@ int main()
                               << coefficients.second
                               << std::endl;
                 }
-                else if (command == "COEFFICIENTS_ALL") {
+                else if (command == "INTERFACE_DATA") {
                     requireRuntime(runtime);
-                    // format: COEFFICIENTS_ALL timestep time num_surfaces <surf_id flow> ...
-                    if (arguments.size() < 4) {
-                        throw std::runtime_error("COEFFICIENTS_ALL expects timestep, time, num_surfaces, and pairs of surface ID and flow.");
+                    if (arguments.size() != 5) {
+                        throw std::runtime_error(
+                            "INTERFACE_DATA expects surface, timestep, time, and flow.");
                     }
-                    int timestep = parseValue<int>(arguments[1], "timestep");
-                    double time = parseValue<double>(arguments[2], "time");
-                    int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
-                    if (arguments.size() != 4 + 2 * num_surfaces) {
-                        throw std::runtime_error("COEFFICIENTS_ALL arguments mismatch with num_surfaces.");
-                    }
-                    std::cout << "STARFISH_COEFFICIENTS_ALL";
-                    for (int i = 0; i < num_surfaces; ++i) {
-                        int surface_id = parseValue<int>(arguments[4 + 2*i], "surface ID");
-                        double flow = parseValue<double>(arguments[5 + 2*i], "flow");
-                        const std::pair<double, double> coefficients = 
-                            runtime->computeCoefficients(surface_id, timestep, time, flow);
-                        std::cout << " " << coefficients.first << " " << coefficients.second;
-                    }
-                    std::cout << std::endl;
+                    const CrimsonNetlistRuntime::InterfaceData data =
+                        runtime->computeInterfaceData(
+                            parseValue<int>(arguments[1], "surface ID"),
+                            parseValue<int>(arguments[2], "timestep"),
+                            parseValue<double>(arguments[3], "time"),
+                            parseValue<double>(arguments[4], "flow"));
+                    std::cout << "STARFISH_INTERFACE_DATA "
+                              << (data.flowPermitted ? 1 : 0)
+                              << " "
+                              << (data.boundaryConditionTypeChanged ? 1 : 0)
+                              << " "
+                              << data.dp_dq
+                              << " "
+                              << data.hop
+                              << std::endl;
                 }
                 else if (command == "UPDATE_ALL_AND_FINALIZE") {
                     requireRuntime(runtime);
@@ -367,6 +374,10 @@ int main()
                     int timestep = parseValue<int>(arguments[1], "timestep");
                     double time = parseValue<double>(arguments[2], "time");
                     int num_surfaces = parseValue<int>(arguments[3], "num_surfaces");
+                    if (num_surfaces <= 0) {
+                        throw std::runtime_error(
+                            "UPDATE_ALL_AND_FINALIZE requires at least one surface.");
+                    }
                     if (arguments.size() != 4 + 3 * num_surfaces) {
                         throw std::runtime_error("UPDATE_ALL_AND_FINALIZE arguments mismatch with num_surfaces.");
                     }
@@ -374,7 +385,6 @@ int main()
                         int surface_id = parseValue<int>(arguments[4 + 3*i], "surface ID");
                         double pressure = parseValue<double>(arguments[5 + 3*i], "pressure");
                         double flow = parseValue<double>(arguments[6 + 3*i], "flow");
-                        runtime->computeUpdateCoefficients(surface_id, timestep, time, flow);
                         runtime->updateState(surface_id, timestep, pressure, flow);
                     }
                     runtime->finalizeTimestep(timestep);

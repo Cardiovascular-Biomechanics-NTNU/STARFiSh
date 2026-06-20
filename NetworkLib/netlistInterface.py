@@ -93,7 +93,18 @@ class NetlistBoundaryInterface(object):
 
     def solve(self, omega_known, R, nmem, n, dt, P, Q, A, Z1, Z2):
         time = (n + 1) * dt
-        if not self.manager.flow_permitted(self.surface_id, n, time, dt):
+        flow_permitted, boundary_type_changed, dp_dq, hop = (
+            self.manager.compute_interface_data(
+                self.surface_id,
+                n,
+                time,
+                dt,
+                P,
+                self.flow_sign * Q,
+            )
+        )
+        del boundary_type_changed
+        if not flow_permitted:
             omega = solve_prescribed_flow_characteristic(
                 self.position,
                 omega_known,
@@ -115,15 +126,6 @@ class NetlistBoundaryInterface(object):
             else:
                 dQInOut = R[:][1] * omega
             return du, dQInOut
-
-        dp_dq, hop = self.manager.compute_coefficients(
-            self.surface_id,
-            timestep=n,
-            time=time,
-            dt=dt,
-            pressure=P,
-            flow=self.flow_sign * Q,
-        )
         omega = solve_robin_characteristic(
             self.position,
             omega_known,

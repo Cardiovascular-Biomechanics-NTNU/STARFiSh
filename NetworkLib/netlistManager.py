@@ -100,10 +100,36 @@ class NetlistBoundaryManager(object):
             raise KeyError("No netlist boundary registered for surfaceId {}".format(surface_id))
         if boundary["rtilde"] is not None:
             return float(boundary["rtilde"]), float(boundary["s"])
-        adapter = self._get_adapter(dt)
+        _, _, dp_dq, hop = self.compute_interface_data(
+            surface_id,
+            timestep,
+            time,
+            dt,
+            pressure,
+            flow,
+        )
+        return dp_dq, hop
+
+    def compute_interface_data(self, surface_id, timestep, time, dt, pressure, flow):
+        """
+        Return the full per-surface solve-phase interface payload:
+
+            (flow_permitted, boundary_type_changed, dp_dq, Hop)
+
+        This combines the old status and coefficient requests into one worker
+        round-trip for the active coupling path.
+        """
+        del pressure
+        surface_id = int(surface_id)
+        boundary = self.boundaries.get(surface_id)
+        if boundary is None:
+            raise KeyError("No netlist boundary registered for surfaceId {}".format(surface_id))
+        if boundary["rtilde"] is not None:
+            return True, False, float(boundary["rtilde"]), float(boundary["s"])
         if self._active_timestep != int(timestep):
             self.start_timestep(timestep, time, dt)
-        return adapter.compute_implicit_coefficients(surface_id, timestep, time, dt, flow)
+        adapter = self._get_adapter(dt)
+        return adapter.compute_interface_data(surface_id, timestep, time, dt, flow)
 
     def compute_update_coefficients(self, surface_id, timestep, time, dt, flow):
         """
@@ -147,18 +173,13 @@ class NetlistBoundaryManager(object):
         """
         Start CRIMSON's global netlist timestep once before boundary solves.
 
-        This mirrors CRIMSON's initialise-at-start hook. Fake constant
-        Rtilde/S boundaries do not need the compiled adapter, so this method is
-        a no-op unless at least one registered boundary is in real netlist mode.
+        This method now only marks the active timestep on the STARFiSh side.
+        The first real coefficient request triggers CRIMSON's actual
+        `initialiseAtStartOfTimestep()` call through the worker runtime.
         """
         timestep = int(timestep)
         if self._active_timestep == timestep:
             return None
-        if not self._has_real_boundaries():
-            self._active_timestep = timestep
-            return None
-        adapter = self._get_adapter(dt)
-        adapter.start_timestep(timestep, time, dt)
         self._active_timestep = timestep
         return None
 
@@ -190,35 +211,72 @@ class NetlistBoundaryManager(object):
 
         This should be called after the solver has visited all boundary objects
         for the timestep. It pushes every recorded real-netlist surface state
-        into CRIMSON, then advances/finalizes the one global netlist.
+        into CRIMSON, then advances/finalizes the one global netlist. History
+        files remain buffered until `close()`.
         """
         if self.pending_states:
             first_state = next(iter(self.pending_states.values()))
             adapter = self._get_adapter(first_state["dt"])
+            expected_surfaces = set(self._real_surface_ids())
+            pending_surfaces = set(self.pending_states)
+            if pending_surfaces != expected_surfaces:
+                raise RuntimeError(
+                    "Cannot finalize CRIMSON timestep {}: expected states for "
+                    "surfaces {}, received {}.".format(
+                        timestep,
+                        sorted(expected_surfaces),
+                        sorted(pending_surfaces),
+                    )
+                )
+
+            states = []
             for surface_id in sorted(self.pending_states):
                 state = self.pending_states[surface_id]
-                self.compute_update_coefficients(
-                    surface_id,
-                    state["timestep"],
-                    state["time"],
-                    state["dt"],
-                    state["flow"],
+                if int(state["timestep"]) != int(timestep):
+                    raise RuntimeError(
+                        "Pending state for surface {} belongs to timestep {}, "
+                        "not {}.".format(
+                            surface_id,
+                            state["timestep"],
+                            timestep,
+                        )
+                    )
+                states.append(
+                    (surface_id, state["pressure"], state["flow"])
                 )
-                adapter.update_state(
-                    surface_id,
-                    state["timestep"],
-                    state["time"],
-                    state["dt"],
-                    state["pressure"],
-                    state["flow"],
-                )
-            adapter.finalize_timestep(timestep)
+
+            adapter.update_state_all_and_finalize(
+                first_state["timestep"],
+                first_state["time"],
+                first_state["dt"],
+                states,
+            )
             self.pending_states.clear()
         elif self.adapter is not None:
             self.adapter.finalize_timestep(timestep)
         if self._active_timestep == int(timestep):
             self._active_timestep = None
         return None
+
+    def close(self):
+        """
+        Flush and stop the simulation-scoped CRIMSON worker, then reset state.
+
+        The default manager is process-wide, so a complete reset is required
+        before another case can be loaded in the same Python process.
+        """
+        adapter = self.adapter
+        self.adapter = None
+        try:
+            if adapter is not None:
+                adapter.close()
+        finally:
+            self.boundaries.clear()
+            self.boundary_states.clear()
+            self.pending_states.clear()
+            self.netlist_file = None
+            self._active_timestep = None
+            self.output_directory = None
 
     def _has_real_boundaries(self):
         """

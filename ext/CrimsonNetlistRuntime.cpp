@@ -19,6 +19,14 @@ CrimsonNetlistRuntime::SurfaceState::SurfaceState()
 {
 }
 
+CrimsonNetlistRuntime::InterfaceData::InterfaceData()
+    : flowPermitted(false),
+      boundaryConditionTypeChanged(false),
+      dp_dq(std::numeric_limits<double>::quiet_NaN()),
+      hop(std::numeric_limits<double>::quiet_NaN())
+{
+}
+
 CrimsonNetlistRuntime::CrimsonNetlistRuntime(
     int hstep,
     double alfi,
@@ -154,6 +162,36 @@ std::pair<double, double> CrimsonNetlistRuntime::computeCoefficients(
         alfi_ * dt_);
 }
 
+CrimsonNetlistRuntime::InterfaceData CrimsonNetlistRuntime::computeInterfaceData(
+    int surfaceId,
+    int timestep,
+    double time,
+    double flow)
+{
+    requireLoaded();
+    startTimestep(timestep, time);
+
+    SurfaceState& surface = getSurface(surfaceId);
+    InterfaceData data;
+    data.flowPermitted = surface.circuit->flowPermittedAcross3DInterface();
+    data.boundaryConditionTypeChanged =
+        surface.circuit->boundaryConditionTypeHasJustChanged();
+
+    if (!data.flowPermitted) {
+        return data;
+    }
+
+    surface.flow = flow;
+    std::pair<double, double> coefficients =
+        surface.circuit->computeImplicitCoefficients(
+            timestep,
+            time,
+            alfi_ * dt_);
+    data.dp_dq = coefficients.first;
+    data.hop = coefficients.second;
+    return data;
+}
+
 std::pair<double, double> CrimsonNetlistRuntime::computeUpdateCoefficients(
     int surfaceId,
     int timestep,
@@ -228,31 +266,10 @@ void CrimsonNetlistRuntime::finalizeTimestep(int timestep)
         surface->second.circuit->finalizeLPNAtEndOfTimestep();
     }
 
-    // CRIMSON writers use relative filenames. Temporarily write from the
-    // requested solution directory, then restore the caller's directory.
-    const boost::filesystem::path previousDirectory =
-        boost::filesystem::current_path();
-    try {
-        if (!outputDirectory_.empty()) {
-            boost::filesystem::current_path(outputDirectory_);
-        }
-
-        for (std::map<int, SurfaceState>::iterator surface = surfaces_.begin();
-             surface != surfaces_.end();
-             ++surface) {
-            surface->second.circuit->writePressuresFlowsAndVolumes(
-                surface->second.nextTimestepWriteStart);
-        }
-    }
-    catch (...) {
-        boost::filesystem::current_path(previousDirectory);
-        throw;
-    }
-    boost::filesystem::current_path(previousDirectory);
-
-    // Match CRIMSON's end-of-timestep lifecycle: first commit and write the
-    // converged circuit state, then let controllers modify parameters for the
-    // next timestep's coefficient calculation.
+    // Match CRIMSON's end-of-timestep lifecycle: first commit the converged
+    // circuit state, then let controllers modify parameters for the next
+    // timestep's coefficient calculation. History output is buffered until
+    // flush(), normally called once during the worker's QUIT sequence.
     controlSystems_->update();
 
     timestepFinalized_ = true;
@@ -343,4 +360,28 @@ void CrimsonNetlistRuntime::requireLoaded() const
         throw std::runtime_error(
             "CrimsonNetlistRuntime::load() must be called first.");
     }
+}
+
+void CrimsonNetlistRuntime::flush()
+{
+    requireLoaded();
+    const boost::filesystem::path previousDirectory =
+        boost::filesystem::current_path();
+    try {
+        if (!outputDirectory_.empty()) {
+            boost::filesystem::current_path(outputDirectory_);
+        }
+
+        for (std::map<int, SurfaceState>::iterator surface = surfaces_.begin();
+             surface != surfaces_.end();
+             ++surface) {
+            surface->second.circuit->writePressuresFlowsAndVolumes(
+                surface->second.nextTimestepWriteStart);
+        }
+    }
+    catch (...) {
+        boost::filesystem::current_path(previousDirectory);
+        throw;
+    }
+    boost::filesystem::current_path(previousDirectory);
 }

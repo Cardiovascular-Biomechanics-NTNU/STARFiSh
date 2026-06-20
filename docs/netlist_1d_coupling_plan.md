@@ -1723,10 +1723,17 @@ load
   -> runtime.load(...)
 
 start_timestep
-  -> runtime.startTimestep(...)
+  -> manager marks the active timestep
+  -> runtime.startTimestep(...) is triggered lazily by the first interface-data
+     request for that timestep
 
-compute_coefficients
-  -> runtime.computeCoefficients(...)
+compute_interface_data
+  -> runtime.computeInterfaceData(...)
+     returns:
+       flow_permitted
+       boundary_condition_type_changed
+       dp_dq
+       Hop
 
 update_state
   -> runtime.updateState(...)
@@ -1743,13 +1750,17 @@ For example:
 
 ```text
 STARFiSh:
-  compute coefficients for surface 2 with Q = 1.0e-5
+  request interface data for surface 2 with Q = 1.0e-5
 
 CRIMSON executable:
-  runtime.computeCoefficients(2, timestep, time, 1.0e-5)
+  runtime.computeInterfaceData(2, timestep, time, 1.0e-5)
 
 CRIMSON runtime:
-  returns dp_dq and Hop
+  returns:
+    flow_permitted
+    boundary_condition_type_changed
+    dp_dq
+    Hop
 
 STARFiSh interface:
   solves the unknown characteristic
@@ -1764,36 +1775,38 @@ The intended coupled timestep sequence is:
 
 ```text
 STARFiSh starts timestep n
-  -> runtime.startTimestep(n)
+  -> manager.start_timestep(n)
+     marks the active timestep only
 
 For each netlist boundary:
-  -> runtime.computeCoefficients(surface)
-  <- dp_dq, Hop
+  -> runtime.computeInterfaceData(surface, timestep, time, flow)
+  <- flow_permitted, boundary_condition_type_changed, dp_dq, Hop
 
 STARFiSh characteristic interface:
-  solve the unknown characteristic
+  if flow_permitted:
+    solve the unknown characteristic using dp_dq and Hop
+  else:
+    switch to prescribed zero-flow handling
   compute the final interface P and Q
 
-For each surface:
-  -> runtime.updateState(surface, P, Q)
-
 After all surfaces:
+  -> runtime.updateState(surface, P, Q) for every surface
   -> runtime.finalizeTimestep(n)
        finalize CRIMSON circuit histories
-       write pressure, flow, and volume outputs
        run CRIMSON native and Python controllers
 
 Next timestep:
   controller-updated parameters affect dp_dq and Hop
 ```
 
-The ordering is important. `computeCoefficients()` evaluates the boundary law
+The ordering is important. `computeInterfaceData()` evaluates the boundary law
 using the state and parameters active for timestep `n`. STARFiSh then solves
 its characteristic equation and sends the converged interface state through
 `updateState()`. Only after every surface has been updated may
-`finalizeTimestep()` commit histories, write outputs, and run controllers.
+`finalizeTimestep()` commits histories and runs controllers.
 Controller changes therefore affect the coefficients requested during the
-next timestep, matching the CRIMSON lifecycle.
+next timestep, matching the CRIMSON lifecycle. Buffered pressure, flow, and
+volume outputs are written once during `QUIT`.
 
 ### Why Python 3 and Python 2 Can Coexist
 
@@ -1847,25 +1860,20 @@ remain in memory for the entire STARFiSh simulation. The design does not start
 a new process or reload Python for each timestep.
 
 The additional cost comes from synchronous communication across the process
-boundary. With the current scalar command protocol and `N` netlist surfaces,
-one timestep uses:
+boundary. After the latest batching reduction, the active STARFiSh path uses:
 
 ```text
-1 x START
-N x INTERFACE_STATUS
-N x COEFFICIENTS
-N x UPDATE_COEFFICIENTS
-N x UPDATE
-1 x FINALIZE
+N x INTERFACE_DATA
+1 x UPDATE_ALL_AND_FINALIZE
 ```
 
 Therefore, the current transport requires:
 
 ```text
-4*N + 2 request/response exchanges per timestep
+N + 1 request/response exchanges per timestep
 ```
 
-For one surface this is six exchanges. For ten surfaces it is 42 exchanges.
+For one surface this is two exchanges. For ten surfaces it is 11 exchanges.
 Each exchange includes:
 
 ```text
@@ -1883,36 +1891,75 @@ Only scalar interface data are transferred; full circuit state and Python
 objects remain in the worker.
 
 The practical impact depends on the number of STARFiSh timesteps and surfaces.
-For example, 100,000 timesteps with one surface require 600,000 synchronous
+For example, 100,000 timesteps with one surface require 200,000 synchronous
 exchanges. Even a small per-message cost can become visible because the
 STARFiSh 1D update is comparatively inexpensive. This cost must be benchmarked
 with representative cases rather than estimated from the controller test.
 
-The first implementation prioritizes correctness and inspectability. If the
-transport becomes significant, the next optimization should batch all surfaces:
+The active production improvement was:
 
 ```text
-COMPUTE_ALL timestep time Q_1 Q_2 ... Q_N
-  <- dp_dq_1 Hop_1 dp_dq_2 Hop_2 ... dp_dq_N Hop_N
+replace:
+  START_AND_STATUS
+  COEFFICIENTS
+with:
+  INTERFACE_DATA
 
-COMPUTE_UPDATE_ALL timestep time Q_1 Q_2 ... Q_N
-  <- dp_dq_1 Hop_1 dp_dq_2 Hop_2 ... dp_dq_N Hop_N
-
-UPDATE_ALL timestep P_1 Q_1 P_2 Q_2 ... P_N Q_N
-  <- STARFISH_OK
+and remove the unused per-surface UPDATE_COEFFICIENTS call from the
+UPDATE_ALL_AND_FINALIZE worker path
 ```
 
-That reduces the number of exchanges to approximately six per timestep,
-independent of surface count:
+This preserves the STARFiSh characteristic algebra while reducing both worker
+round-trips and worker-side redundant netlist solves.
+
+Measured result for:
 
 ```text
-START
-STATUS_ALL
-COMPUTE_ALL
-COMPUTE_UPDATE_ALL
-UPDATE_ALL
-FINALIZE
+examples/bifurcation_heart_netlist
+totalTime = 30 s
+dt = 2.236 ms
+nTSteps = 13415
+two real netlist surfaces
 ```
+
+was:
+
+```text
+before protocol reduction:
+  solver time  = 20.433 s
+  wall time    = 24.48 s
+
+after protocol reduction:
+  solver time  = 15.679 s
+  wall time    = 19.35 s
+```
+
+This is about a 23 percent reduction in solve time for that heart-netlist case.
+
+The first profiler before the speedup showed the main cost in:
+
+```text
+UtilityLib/crimsonNetlistWorkerClient.py:_send
+UtilityLib/crimsonNetlistWorkerClient.py:_expect
+queue.get / thread lock acquire
+NetworkLib.netlistManager.finalize_timestep
+UtilityLib.crimsonNetlistWorkerClient.update_state_all_and_finalize
+```
+
+After the speedup, the dominant remaining cost is still worker communication:
+
+```text
+_send
+_expect
+queue.get
+thread lock acquire
+update_state_all_and_finalize
+```
+
+The 1D numerical kernel itself remains much smaller than the communication
+cost. Therefore additional compiler flags such as `-O3` on the local wrapper
+targets have limited impact unless the dominant cost moves back into compiled
+arithmetic.
 
 Binary messages, Unix-domain sockets, or shared memory should only be
 considered after profiling. The current line-oriented text protocol is easier
@@ -2051,6 +2098,9 @@ Response:
 STARFISH_OK
 ```
 
+The current STARFiSh manager no longer uses this command on the active hot
+path. It is retained as a compatibility/debug command.
+
 #### `COEFFICIENTS`
 
 ```text
@@ -2072,6 +2122,9 @@ STARFISH_COEFFICIENTS dp_dq Hop
 STARFiSh combines this affine law with the known vessel characteristic to
 solve the unknown characteristic.
 
+The current STARFiSh manager no longer uses this command on the active hot
+path. It is retained as a compatibility/debug command.
+
 #### `UPDATE_COEFFICIENTS`
 
 ```text
@@ -2092,6 +2145,9 @@ STARFISH_UPDATE_COEFFICIENTS dp_dq Hop
 
 This preserves CRIMSON's corrector/update path, which forms differential
 component terms with `dt` rather than solve-phase `alfi * dt`.
+
+The current STARFiSh manager no longer uses this command on the active hot
+path. It is retained as a compatibility/debug command.
 
 #### `INTERFACE_STATUS`
 
@@ -2132,6 +2188,42 @@ flow_permitted(surface_id)
 boundary_condition_type_changed(surface_id)
 ```
 
+The current STARFiSh manager no longer uses this command on the active hot
+path. It is retained as a compatibility/debug command.
+
+#### `INTERFACE_DATA`
+
+```text
+INTERFACE_DATA surfaceId timestep time flow
+```
+
+Calls:
+
+```cpp
+runtime.computeInterfaceData(surfaceId, timestep, time, flow);
+```
+
+Response:
+
+```text
+STARFISH_INTERFACE_DATA flowPermitted typeChanged dp_dq Hop
+```
+
+This is the active hot-path protocol used by STARFiSh. It combines what were
+previously separate `INTERFACE_STATUS` and `COEFFICIENTS` requests into one
+worker exchange.
+
+The meaning of the returned values is:
+
+```text
+flowPermitted = 0
+  A non-leaky closed diode blocks the interface. STARFiSh must use its
+  prescribed zero-flow boundary treatment instead of the affine Robin law.
+
+typeChanged = 1
+  CRIMSON reports that the interface boundary mode has just changed.
+```
+
 #### `SET_OUTPUT_DIRECTORY`
 
 ```text
@@ -2154,42 +2246,31 @@ This preserves the existing adapter behavior where STARFiSh may assign the
 final `results/SolutionData_<number>` directory after creating the coupling
 objects but before CRIMSON writes end-of-timestep histories.
 
-#### `UPDATE`
+#### `UPDATE_ALL_AND_FINALIZE`
 
 ```text
-UPDATE surfaceId timestep pressure flow
+UPDATE_ALL_AND_FINALIZE timestep time num_surfaces surfaceId pressure flow ...
 ```
 
 Calls:
 
 ```cpp
-runtime.updateState(surfaceId, timestep, pressure, flow);
-```
-
-Response:
-
-```text
-STARFISH_OK
-```
-
-#### `FINALIZE`
-
-```text
-FINALIZE timestep
-```
-
-Calls:
-
-```cpp
+for each surface:
+  runtime.updateState(surfaceId, timestep, pressure, flow);
 runtime.finalizeTimestep(timestep);
 ```
 
-This commits circuit histories, writes pressure/flow/volume output files, and
-runs Python and native controllers. The response is:
+This commits circuit histories and runs Python and native controllers.
+Pressure/flow/volume output files are buffered until `QUIT`. The response is:
 
 ```text
 STARFISH_OK
 ```
+
+This is the active end-of-timestep protocol used by STARFiSh. The earlier
+worker implementation also called `runtime.computeUpdateCoefficients(...)`
+inside this command, but that update-phase coefficient result was not consumed
+by the STARFiSh 1D interface. That redundant call has been removed.
 
 #### `QUIT`
 
@@ -2223,11 +2304,13 @@ write unrelated diagnostics to the same output stream. The Python 3 client must
 ignore unrelated lines, stop on `STARFISH_ERROR` or `STARFISH_FATAL`, and wait
 for the expected prefixed response.
 
-The worker protocol now transports both diode/interface status flags. The
-remaining integration task is to route these production-client methods through
-`CrimsonNetlistAdapter`. `NetworkLib/netlistInterface.py` already consumes
-`flow_permitted`; handling of the `boundary_condition_type_changed` transition
-flag still requires an explicit STARFiSh-side policy and regression fixture.
+The worker protocol now transports both diode/interface status flags and the
+solve-phase coefficients in one active hot-path command. `CrimsonNetlistAdapter`,
+`NetworkLib/netlistManager.py`, and `NetworkLib/netlistInterface.py` already use
+that combined path. The remaining STARFiSh-side policy work is the
+interpretation of `boundary_condition_type_changed`; the current coupling uses
+`flow_permitted` directly and records the transition flag, but a more explicit
+transition/reset policy would still benefit from a dedicated regression fixture.
 
 ### C++ File Responsibilities
 
@@ -2812,3 +2895,431 @@ or:
 and make `FlowSolver.initializeTimeVariables()` use that value instead of
 deriving `dt` only from CFL. That is a separate feature from runtime adaptive
 `dt`.
+
+## Heart Model Integration
+
+The first verified heart-driven case is:
+
+```text
+examples/bifurcation_heart_netlist/
+```
+
+Despite the historical directory name, the current STARFiSh domain in this
+case is one short vessel with a CRIMSON netlist boundary at each end:
+
+```text
+CRIMSON heart circuit
+  |
+  | surfaceId=1, proximal boundary, flowSign=-1
+  v
+STARFiSh vessel
+  |
+  | surfaceId=0, distal boundary, flowSign=+1
+  v
+CRIMSON RCR Windkessel
+```
+
+Both boundaries are entries in the same `netlist_surfaces.xml`. STARFiSh only
+maps vessel ends to surface IDs; CRIMSON continues to own the heart chamber,
+valves, Windkessel state, controller, diode switching, and history updates.
+
+### STARFiSh Boundary Mapping
+
+The case uses both forms of the Type 2 netlist boundary:
+
+```xml
+<boundaryCondition vesselId="1">
+  <_Netlist>
+    <surfaceId>0</surfaceId>
+    <flowSign>1.0</flowSign>
+  </_Netlist>
+  <Netlist>
+    <surfaceId>1</surfaceId>
+    <flowSign>-1.0</flowSign>
+  </Netlist>
+</boundaryCondition>
+```
+
+The leading underscore follows STARFiSh's existing convention for the distal
+end of a vessel. The non-underscored `Netlist` is placed at the proximal end.
+
+`flowSign` converts STARFiSh's vessel-oriented flow into CRIMSON's
+circuit-oriented interface flow:
+
+```text
+surface 0, distal outlet:
+  positive STARFiSh Q leaves the vessel and enters the Windkessel
+  flowSign = +1
+
+surface 1, proximal heart:
+  positive STARFiSh Q enters the vessel but leaves the heart circuit
+  flowSign = -1
+```
+
+This sign does not select which characteristic is unknown. Characteristic
+direction is determined by boundary position and wave eigenvalue direction in
+`NetworkLib/netlistInterface.py`.
+
+At each boundary evaluation:
+
+```text
+CRIMSON returns:
+  P = dp_dq * Q_crimson + Hop
+
+STARFiSh interface:
+  applies flowSign
+  combines the Robin law with the known vessel characteristic
+  solves the unknown characteristic
+  obtains final P and Q
+
+manager:
+  records final surface state
+  sends all surfaces to CRIMSON
+  finalizes the global netlist once
+```
+
+### Proximal Netlist Initialization
+
+Originally, `VascularNetwork.calculateInitialValues()` assumed that the root
+vessel always had a Type 1 prescribed inflow. A heart model is different: its
+proximal netlist is a Type 2 boundary and the flow is produced dynamically by
+the chamber and valves. Therefore no object existed on which to call:
+
+```python
+findMeanFlowAndMeanTime()
+```
+
+This produced:
+
+```text
+AttributeError: 'NoneType' object has no attribute
+'findMeanFlowAndMeanTime'
+```
+
+`NetworkLib/classVascularNetwork.py` now explicitly detects a proximal
+`Netlist` boundary:
+
+```python
+elif isinstance(bc, Netlist) and bc.position == 0:
+    proximalNetlistBoundaryCondition = bc
+```
+
+The initialization paths now behave as follows:
+
+```text
+Auto:
+  use calculateInitialValuesFromProximalNetlist()
+
+MeanFlow / AutoLinearSystem:
+  use initMeanFlow without trying to modify a Type 1 waveform
+
+MeanPressure:
+  use initMeanPressure and skip Type 1 waveform timing
+
+ConstantPressure:
+  retain the normal constant-pressure initialization
+```
+
+For the verified case:
+
+```xml
+<initialsationMethod>Auto</initialsationMethod>
+<initMeanFlow unit="m3 s-1">0.0</initMeanFlow>
+<initMeanPressure unit="Pa">10000.0</initMeanPressure>
+```
+
+The initial vessel pressure is therefore consistent with the initial heart and
+arterial pressures, while the heart netlist determines flow after timestepping
+begins.
+
+STARFiSh may still print:
+
+```text
+Boundary Condition at end of vessel 1 has no resistance
+The resistance is set to 1*133.32*1.e6
+```
+
+This is an initialization-only fallback because STARFiSh's static resistance
+estimator cannot inspect the real CRIMSON circuit before the worker is loaded.
+The fallback is not the runtime netlist boundary law. Runtime pressure and flow
+use CRIMSON's computed `dp_dq` and `Hop`.
+
+### Heart Circuit and Controller
+
+Circuit 2 in `netlist_surfaces.xml` contains:
+
+```text
+interface inertance
+aortic diode
+volume-tracking pressure chamber
+outflow/inflow inertance
+venous diode
+fixed venous pressure source
+```
+
+The chamber parameter is controlled by:
+
+```xml
+<control>
+  <type>customPython</type>
+  <source>elastanceController</source>
+</control>
+```
+
+The controller is loaded and executed inside the CRIMSON worker's embedded
+Python 2 process. STARFiSh's Python 3 process never imports the controller.
+Controller updates affect the chamber elastance used by the following
+timestep's coefficient calculation.
+
+The verified SI values are:
+
+```text
+initial chamber volume     1.30e-4 m3       130 ml
+minimum elastance          4.10246e6 Pa/m3
+maximum elastance          3.08270e8 Pa/m3
+time to maximum elastance  0.2782 s
+relaxation time            0.1391 s
+heart period               0.86 s
+venous pressure            533.2 Pa         4 mmHg
+```
+
+Both diode open-state resistance parameters are:
+
+```text
+1.3332e6 Pa s/m3 = 0.01 mmHg s/ml
+```
+
+The earlier value of approximately `1.0e4 Pa s/m3` made the valves effectively
+ideal. That permitted very large instantaneous filling and ejection flows,
+which drove the explicit 1D boundary update outside its stable range.
+
+The interface inertance remains:
+
+```text
+1.0e4
+```
+
+It must not be confused with the adjacent diode resistance. An earlier
+position-based XML replacement accidentally changed this inertance while
+leaving the aortic diode unchanged. Component changes should therefore be made
+by component index and type, not by replacing the first matching numeric value.
+
+### Distal Windkessel Requirement
+
+The first heart test incorrectly used a single terminal resistor:
+
+```text
+P_out = R * Q_out
+```
+
+When heart outflow decreased during diastole, this boundary pressure also
+collapsed immediately. The vessel started near `75 mmHg`, but the terminal
+load supported only approximately `5-10 mmHg` at the observed mean flow.
+Pressure consequently drained over successive cycles until the MacCormack
+corrector calculated a negative pressure.
+
+The corrected circuit 1 is the same validated three-element Windkessel topology
+used by the baseline netlist cases:
+
+```text
+STARFiSh interface -- Rc -- arterial node -- Rdistal -- venous pressure
+                                     |
+                                     C
+                                     |
+                              venous pressure
+```
+
+Its parameters are:
+
+```text
+Rc       2.0000e7 Pa s/m3
+Rdistal  1.1332e8 Pa s/m3
+Rtotal   1.3332e8 Pa s/m3 = 1.0 mmHg s/ml
+C        3.5e-8 m3/Pa
+Pv       533.2 Pa
+```
+
+The compliance maintains arterial pressure during low-flow portions of the
+cardiac cycle. This was the decisive correction for the cycle-to-cycle pressure
+collapse.
+
+### Timestep Requirement
+
+STARFiSh computes its fixed timestep during initialization from:
+
+```text
+dt = CFL * dz / c
+```
+
+The CFL condition only constrains the explicit 1D vessel equations. It does not
+automatically account for stiffness introduced by fast valves, chamber
+elastance changes, inertance, or the Robin netlist boundary law.
+
+For this case:
+
+```xml
+<CFL>0.20</CFL>
+```
+
+produces:
+
+```text
+dt approximately 9.334e-5 s
+21427 steps for a 2.0 s simulation
+```
+
+`CFL=0.85` produced `dt approximately 3.97e-4 s` and failed during the first
+cycle. The netlist still receives a fixed `delt`, and because STARFiSh uses an
+explicit MacCormack scheme, the CRIMSON netlist runtime uses:
+
+```text
+alfi = 1.0
+alfi_delt = dt
+```
+
+This is backward-Euler weighting for the netlist ODE discretization; it does
+not convert STARFiSh into a generalized-alpha solver.
+
+### Failure Progression and Diagnosis
+
+The observed failures separated into three stages:
+
+```text
+1. Missing proximal Type 1 inflow
+   Failure during network initialization.
+   Fix: recognize a proximal Type 2 Netlist heart boundary.
+
+2. Near-ideal valve resistance and aggressive timestep
+   Failure near 0.882 s with excessive heart flow.
+   Fix: finite SI valve resistance and CFL=0.20.
+
+3. Pure-resistance distal load
+   Failure moved to approximately 1.408 s.
+   Netlist history showed progressive arterial pressure loss.
+   Fix: replace the resistor with an RCR Windkessel.
+```
+
+This progression is important: reducing `dt` delayed the final failure but did
+not correct the physically incomplete terminal model.
+
+When diagnosing a heart case, inspect:
+
+```text
+netlistFlows_surface_0.dat
+netlistPressures_surface_0.dat
+netlistVolumes_surface_0.dat
+netlistFlows_surface_1.dat
+netlistPressures_surface_1.dat
+netlistVolumes_surface_1.dat
+```
+
+The surface files distinguish a numerical vessel failure from a circuit state
+that is already becoming unphysical.
+
+### Verified Regression
+
+The corrected case was run with:
+
+```bash
+cd /home/sadid/starfish/examples/bifurcation_heart_netlist
+conda run -n starfish-py3 \
+  python3 /home/sadid/starfish/solver.py --export-ascii
+```
+
+The full `2.0 s` simulation completed, crossing both previous failure times.
+The resulting ranges were:
+
+```text
+distal pressure             67.9 to 139.0 mmHg
+heart interface pressure    66.4 to 151.3 mmHg
+ventricular volume          45.5 to 130.0 ml
+mean second-cycle outflow   110.4 ml/s
+```
+
+These values are finite and internally consistent enough for an integration
+regression. They are not, by themselves, a physiological validation of the
+chosen heart and vascular parameters.
+
+The current heart-model definition of done is:
+
+```text
+proximal Type 2 Netlist initializes without a prescribed Type 1 waveform
+Python elastance controller loads in the isolated CRIMSON Python 2 runtime
+heart and Windkessel surfaces exchange coefficients every timestep
+all final surface states are updated before one global finalization
+two or more cardiac cycles complete without negative vessel pressure
+heart and Windkessel pressure/flow/volume histories are written
+```
+
+## Performance and Time-Saving Improvements
+
+To ensure the isolated subprocess worker achieved parity with the legacy in-process nanobind implementation, several deep performance optimizations were introduced:
+
+### 1. Batched Worker Commands
+
+The first worker implementation used separate requests for timestep start,
+interface status, every surface update, and global finalization. The production
+path keeps the debuggable line protocol but batches operations that naturally
+belong together:
+
+```text
+START_AND_STATUS
+  start all circuits and return all interface-mode flags
+
+UPDATE_ALL_AND_FINALIZE
+  update every surface and finalize the global timestep
+```
+
+This removes most subprocess round trips without adding a second binary
+protocol. An experimental shared-memory/spinlock path was removed because it
+had no portable interprocess atomic contract, no bounded wait if the worker
+failed, and complicated graceful `QUIT` handling. The single text protocol
+retains response timeouts, ordered diagnostics, and straightforward failure
+recovery.
+
+### 2. Disabling Intermediate Pickling
+
+The legacy CRIMSON integration periodically creates controller restart pickle
+files. STARFiSh does not yet expose restart support, so
+`CrimsonNetlistAdapter` supplies the named
+`DISABLED_RESTART_INTERVAL = 1000000000`. A positive value is retained because
+CRIMSON's `ControlSystemsManager` performs a modulo operation with this
+interval.
+
+### 3. Batched History I/O Output
+
+Incremental filesystem writes for `netlistFlows`, `netlistPressures`, and
+`netlistVolumes` were removed from `finalizeTimestep()`. Histories remain in
+CRIMSON's native circuit storage and `CrimsonNetlistRuntime::flush()` writes
+only the unwritten range during worker teardown.
+
+`solver.py` now closes the process-wide `NetlistBoundaryManager` in a
+`finally` block. Therefore `QUIT`, history flushing, Python 2 cleanup, and PETSc
+cleanup run on successful simulations and on solver exceptions. The manager is
+also reset so a second case can run safely in the same Python process.
+
+### 4. Controller O(N^2) Array Allocation Fix
+
+The heart example originally accumulated elastance with `numpy.append` and
+periodically rewrote the complete history with `numpy.savetxt`. Both operations
+scale poorly as the run grows. The controller now keeps no full Python history.
+Every 50 timesteps it appends one row containing:
+
+```text
+step_index periodic_time elastance
+```
+
+This makes diagnostic output linear in simulation length and removes NumPy
+from the inner controller loop.
+
+### 5. Demystifying Simulation Duration (CFL Condition)
+
+Runtime differences between cases are dominated by the number of fixed
+timesteps selected from the CFL condition. Fine grid spacing produces a small
+`dt`; for example, `dt approximately 0.09 ms` requires roughly 22,000 steps for
+two seconds of simulated time.
+
+Transport optimization reduces overhead per timestep, but it does not relax
+the numerical stability constraint. Performance should be reported as measured
+timesteps per wall-clock second for a named fixture and build, not as a fixed
+universal throughput claim.

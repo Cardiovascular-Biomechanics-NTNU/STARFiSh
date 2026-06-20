@@ -179,7 +179,7 @@ def writeNetworkToXML(vascularNetwork, dataNumber = "xxx", networkXmlFile = None
 
                 writeXMLsaveValues(subElement,variable,variableValues)
 
-    xmlFile.write(networkXmlFile,encoding='iso-8859-1',pretty_print = True)
+    xmlFile.write(networkXmlFile,encoding='iso-8859-1')
 
 def loadVariablesConversion(variable, variableValueStr, variableUnit, unit = 'unitSI'):
     """

@@ -66,21 +66,21 @@ def run_check(worker, fixture):
                 )
 
             client.start_timestep(0, 0.001, 0.001)
-            interface_status_0 = client.interface_status(1, 0.001)
-            if interface_status_0 != (True, False):
-                raise RuntimeError(
-                    "Unexpected timestep-0 interface status: {}".format(
-                        interface_status_0
-                    )
-                )
-
-            coefficients_0 = client.compute_coefficients(
+            interface_data_0 = client.compute_interface_data(
                 1,
                 0,
                 0.001,
                 1.0e-5,
                 0.001,
             )
+            interface_status_0 = interface_data_0[:2]
+            if interface_status_0 != (True, False):
+                raise RuntimeError(
+                    "Unexpected timestep-0 interface status: {}".format(
+                        interface_status_0
+                    )
+                )
+            coefficients_0 = interface_data_0[2:]
             require_close(coefficients_0[0], 100.0, "timestep-0 dp_dq")
             require_close(coefficients_0[1], 0.0, "timestep-0 Hop")
 
@@ -103,13 +103,14 @@ def run_check(worker, fixture):
                     "The controlled-resistance interface unexpectedly changed type."
                 )
 
-            coefficients_1 = client.compute_coefficients(
+            interface_data_1 = client.compute_interface_data(
                 1,
                 1,
                 0.002,
                 1.0e-5,
                 0.001,
             )
+            coefficients_1 = interface_data_1[2:]
             require_close(coefficients_1[0], 200.0, "timestep-1 dp_dq")
             require_close(coefficients_1[1], 0.0, "timestep-1 Hop")
 

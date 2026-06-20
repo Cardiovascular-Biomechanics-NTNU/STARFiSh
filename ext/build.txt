@@ -1,0 +1,2 @@
+cmake -S ext -B ext/build -DCMAKE_BUILD_TYPE=Release -DSTARFISH_ENABLE_MARCH_NATIVE=ON
+cmake --build ext/build -j

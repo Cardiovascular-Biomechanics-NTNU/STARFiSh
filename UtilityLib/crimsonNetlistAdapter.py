@@ -6,6 +6,12 @@ import os
 from UtilityLib.crimsonNetlistWorkerClient import CrimsonNetlistWorkerClient
 
 
+# CRIMSON uses this interval for Python-controller restart pickles. STARFiSh
+# does not yet expose restart support, so avoid periodic pickle I/O while still
+# keeping the positive interval required by ControlSystemsManager.
+DISABLED_RESTART_INTERVAL = 1000000000
+
+
 class CrimsonNetlistAdapter(object):
     """
     Preserve STARFiSh's netlist adapter API while using a worker subprocess.
@@ -118,6 +124,7 @@ class CrimsonNetlistAdapter(object):
                 alfi=self.alfi,
                 dt=resolved_dt,
                 surface_ids=self.surface_ids,
+                restart_interval=DISABLED_RESTART_INTERVAL,
             )
         except Exception:
             client.abort()
@@ -126,6 +133,39 @@ class CrimsonNetlistAdapter(object):
         self._client = client
         self.delt = resolved_dt
         return self
+
+
+    def start_timestep_and_status(self, timestep, time, dt):
+        client = self._ensure_client(dt)
+        return client.start_timestep_and_status(
+            int(timestep), float(time), self.surface_ids, float(dt)
+        )
+
+    def compute_interface_data(
+        self,
+        surface_id,
+        timestep,
+        time,
+        dt,
+        flow,
+    ):
+        """
+        Return `(flow_permitted, type_changed, dp_dq, Hop)` for one surface.
+        """
+        client = self._ensure_client(dt)
+        return client.compute_interface_data(
+            int(surface_id),
+            int(timestep),
+            float(time),
+            float(flow),
+            float(dt),
+        )
+
+    def update_state_all_and_finalize(self, timestep, time, dt, surface_states):
+        client = self._ensure_client(dt)
+        client.update_state_all_and_finalize(
+            int(timestep), float(time), surface_states, float(dt)
+        )
 
     def compute_implicit_coefficients(
         self,
@@ -221,7 +261,9 @@ class CrimsonNetlistAdapter(object):
 
     def finalize_timestep(self, timestep):
         """
-        Commit histories, write outputs, and execute CRIMSON controllers.
+        Commit histories and execute CRIMSON controllers for one timestep.
+
+        History files are buffered and written during `close()`.
         """
         if self._client is not None:
             self._client.finalize_timestep(int(timestep))

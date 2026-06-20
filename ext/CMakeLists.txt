@@ -1,6 +1,24 @@
 cmake_minimum_required(VERSION 3.15)
 project(crimson_starfish_bridge)
 
+# Default local builds to Release so the worker/runtime do not compile with
+# debug-grade optimization unless the developer asks for it explicitly.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Keep aggressive optimization on by default, but make CPU-specific tuning an
+# explicit opt-in because it reduces binary portability.
+option(STARFISH_ENABLE_MARCH_NATIVE "Enable -march=native for local builds" OFF)
+
+set(STARFISH_OPTIMIZATION_FLAGS "")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    list(APPEND STARFISH_OPTIMIZATION_FLAGS -O3)
+    if(STARFISH_ENABLE_MARCH_NATIVE)
+        list(APPEND STARFISH_OPTIMIZATION_FLAGS -march=native)
+    endif()
+endif()
+
 # 1. Set up Python and nanobind
 find_package(Python 3.8 REQUIRED COMPONENTS Interpreter Development.Module)
 
@@ -69,7 +87,13 @@ target_include_directories(
     PUBLIC
     "${CRIMSON_PYTHON_INCLUDE_DIR}"
     PRIVATE
-    "${CRIMSON_DEPS}/boost_1_74/include"
+        "${CRIMSON_DEPS}/boost_1_74/include"
+)
+
+target_compile_options(
+    crimson_python_runtime
+    PRIVATE
+    ${STARFISH_OPTIMIZATION_FLAGS}
 )
 
 target_compile_definitions(
@@ -119,6 +143,12 @@ target_compile_definitions(
     PETSC_USE_REAL_SCALAR
 )
 
+target_compile_options(
+    crimson_netlist_worker
+    PRIVATE
+    ${STARFISH_OPTIMIZATION_FLAGS}
+)
+
 target_link_libraries(
     crimson_netlist_worker
     PRIVATE
@@ -148,6 +178,12 @@ nanobind_add_module(crimson_starfish_bridge
 
 # 7. Force the bridge to use Real scalars to match CRIMSON's core
 target_compile_definitions(crimson_starfish_bridge PRIVATE PETSC_USE_REAL_SCALAR)
+
+target_compile_options(
+    crimson_starfish_bridge
+    PRIVATE
+    ${STARFISH_OPTIMIZATION_FLAGS}
+)
 
 # 8. Link everything together
 # We link the .a libraries which contain all the symbols (NetlistReader, etc.)

@@ -27,6 +27,16 @@ class NetlistCircuit;
 class CrimsonNetlistRuntime
 {
 public:
+    struct InterfaceData
+    {
+        InterfaceData();
+
+        bool flowPermitted;
+        bool boundaryConditionTypeChanged;
+        double dp_dq;
+        double hop;
+    };
+
     CrimsonNetlistRuntime(
         int hstep,
         double alfi,
@@ -58,6 +68,13 @@ public:
         double time,
         double flow);
 
+    // Return flow/type flags and solve-phase coefficients in one call.
+    InterfaceData computeInterfaceData(
+        int surfaceId,
+        int timestep,
+        double time,
+        double flow);
+
     // Return coefficients using CRIMSON's update-phase dt scaling.
     std::pair<double, double> computeUpdateCoefficients(
         int surfaceId,
@@ -81,6 +98,9 @@ public:
      * state. This is also the eventual controller-update boundary.
      */
     void finalizeTimestep(int timestep);
+
+    // Write all pressure, flow, and volume history not written by an earlier flush.
+    void flush();
 
     int controllerCount() const;
 

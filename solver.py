@@ -129,7 +129,8 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
     output_xml = os.path.join(solution_dir, "{}.xml".format(output_prefix))
     _write_description_index(results_dir, data_number, description)
     _clear_netlist_history_outputs(solution_dir)
-    get_default_netlist_manager().set_output_directory(solution_dir)
+    netlist_manager = get_default_netlist_manager()
+    netlist_manager.set_output_directory(solution_dir)
 
     logger.info("____________Simulation_______________")
     logger.info("%-20s %s" % ("Input XML", input_xml))
@@ -141,29 +142,43 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
     logger.info("%-20s %s" % ("Data number", data_number))
     logger.info("%-20s %s" % ("Case description", description))
 
-    vascular_network = mXML.loadNetworkFromXML(
-        network_name,
-        dataNumber=data_number,
-        networkXmlFile=input_xml,
-        pathSolutionDataFilename=output_hdf5,
-    )
-    if vascular_network is None:
-        raise RuntimeError("Unable to load network XML: {}".format(input_xml))
+    try:
+        vascular_network = mXML.loadNetworkFromXML(
+            network_name,
+            dataNumber=data_number,
+            networkXmlFile=input_xml,
+            pathSolutionDataFilename=output_hdf5,
+        )
+        if vascular_network is None:
+            raise RuntimeError("Unable to load network XML: {}".format(input_xml))
 
-    vascular_network.update({
-        "description": description,
-        "dataNumber": data_number,
-        "name": network_name,
-        "pathSolutionDataFilename": output_hdf5,
-    })
+        vascular_network.update({
+            "description": description,
+            "dataNumber": data_number,
+            "name": network_name,
+            "pathSolutionDataFilename": output_hdf5,
+        })
 
-    time_solver_init_start = time.perf_counter()
-    flow_solver = c1DFlowSolv.FlowSolver(vascular_network)
-    time_solver_init = time.perf_counter() - time_solver_init_start
+        time_solver_init_start = time.perf_counter()
+        flow_solver = c1DFlowSolv.FlowSolver(vascular_network)
+        time_solver_init = time.perf_counter() - time_solver_init_start
 
-    time_solver_solve_start = time.perf_counter()
-    flow_solver.solve()
-    time_solver_solve = time.perf_counter() - time_solver_solve_start
+        time_solver_solve_start = time.perf_counter()
+        flow_solver.solve()
+        time_solver_solve = time.perf_counter() - time_solver_solve_start
+    finally:
+        # QUIT flushes buffered CRIMSON histories and releases the isolated
+        # Python 2/PETSc worker on both successful and failed simulations.
+        simulation_failed = sys.exc_info()[0] is not None
+        try:
+            netlist_manager.close()
+        except Exception:
+            if not simulation_failed:
+                raise
+            logger.exception(
+                "Failed to close the CRIMSON worker while handling an earlier "
+                "simulation error."
+            )
 
     vascular_network.saveSolutionData()
     mXML.writeNetworkToXML(vascular_network, dataNumber=data_number, networkXmlFile=output_xml)

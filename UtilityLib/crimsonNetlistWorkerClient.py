@@ -37,17 +37,15 @@ The intended caller sequence is:
 
     client.load(...)
     for each timestep:
-        client.start_timestep(...)
         for each surface:
-            dp_dq, hop = client.compute_coefficients(...)
+            flow_ok, type_changed, dp_dq, hop = client.compute_interface_data(...)
         # STARFiSh solves the unknown characteristic for final P/Q.
-        for each surface:
-            client.update_state(...)
-        client.finalize_timestep(...)
+        client.update_state_all_and_finalize(...)
     client.close()
 
-`finalize_timestep()` commits CRIMSON histories, writes netlist outputs, and
-runs controllers. Controller-updated parameters affect coefficients requested
+The combined finalization call commits CRIMSON histories and runs controllers.
+`close()` sends `QUIT`, which writes buffered netlist output and tears down the
+isolated runtime. Controller-updated parameters affect coefficients requested
 for the following timestep.
 
 Protocol behavior
@@ -57,15 +55,9 @@ machine-readable response with `STARFISH_`. This client records all lines in a
 bounded transcript, ignores unrelated diagnostics while waiting for the
 expected prefix, and includes recent output in errors.
 
-Current limitations
--------------------
-The worker currently uses one fixed `dt` for its lifetime. Interface status is
-available, but STARFiSh's active adapter has not yet been switched to this
-client, so diode-mode equivalence still requires integration and baseline
-testing before the worker becomes the default path.
-
-This module is intentionally not yet wired into `CrimsonNetlistAdapter`; it is
-the production-quality client to be used during that later migration.
+Current limitation
+------------------
+The worker currently uses one fixed `dt` for its lifetime.
 """
 
 from __future__ import annotations
@@ -406,6 +398,82 @@ class CrimsonNetlistWorkerClient(object):
                 "STARFISH_OK",
             )
 
+    def start_timestep_and_status(self, timestep, time, surface_ids, dt=None):
+        with self._lock:
+            self._require_loaded()
+            self._require_matching_dt(dt)
+            normalized_ids = tuple(int(surface_id) for surface_id in surface_ids)
+            if not normalized_ids:
+                raise CrimsonNetlistWorkerError(
+                    "START_AND_STATUS requires at least one surface."
+                )
+            for surface_id in normalized_ids:
+                self._require_surface(surface_id)
+
+            fields = self._send(
+                "START_AND_STATUS {} {} {} {}".format(
+                    int(timestep),
+                    _format_number(time),
+                    len(normalized_ids),
+                    " ".join(str(surface_id) for surface_id in normalized_ids),
+                ),
+                "STARFISH_START_STATUS",
+            ).split()
+            if len(fields) != 1 + 2 * len(normalized_ids):
+                raise CrimsonNetlistWorkerError(
+                    "Malformed START_AND_STATUS response: {}".format(
+                        " ".join(fields)
+                    )
+                )
+
+            statuses = {}
+            for index, surface_id in enumerate(normalized_ids):
+                statuses[surface_id] = (
+                    self._parse_protocol_bool(
+                        fields[1 + 2 * index],
+                        "flow-permitted flag",
+                    ),
+                    self._parse_protocol_bool(
+                        fields[2 + 2 * index],
+                        "boundary-type-changed flag",
+                    ),
+                )
+            return statuses
+
+    def update_state_all_and_finalize(self, timestep, time, surface_states, dt=None):
+        with self._lock:
+            self._require_loaded()
+            self._require_matching_dt(dt)
+            normalized_states = tuple(
+                (int(surface_id), float(pressure), float(flow))
+                for surface_id, pressure, flow in surface_states
+            )
+            if not normalized_states:
+                raise CrimsonNetlistWorkerError(
+                    "UPDATE_ALL_AND_FINALIZE requires at least one surface."
+                )
+
+            arguments = []
+            for surface_id, pressure, flow in normalized_states:
+                self._require_surface(surface_id)
+                arguments.extend(
+                    (
+                        str(surface_id),
+                        _format_number(pressure),
+                        _format_number(flow),
+                    )
+                )
+
+            self._send(
+                "UPDATE_ALL_AND_FINALIZE {} {} {} {}".format(
+                    int(timestep),
+                    _format_number(time),
+                    len(normalized_states),
+                    " ".join(arguments),
+                ),
+                "STARFISH_OK",
+            )
+
     def compute_coefficients(self, surface_id, timestep, time, flow, dt=None):
         """
         Return CRIMSON's affine interface law `(dp_dq, Hop)` for one surface.
@@ -440,6 +508,49 @@ class CrimsonNetlistWorkerClient(object):
             except ValueError as error:
                 raise CrimsonNetlistWorkerError(
                     "Non-numeric COEFFICIENTS response: {}".format(response)
+                ) from error
+
+    def compute_interface_data(self, surface_id, timestep, time, flow, dt=None):
+        """
+        Return flow/type flags and solve-phase coefficients in one response.
+
+        The returned tuple is:
+
+            (flow_permitted, boundary_condition_type_changed, dp_dq, Hop)
+
+        When flow is not permitted, the coefficient entries may be NaN because
+        STARFiSh will switch to its prescribed-flow treatment instead.
+        """
+        with self._lock:
+            self._require_surface(surface_id)
+            self._require_matching_dt(dt)
+            response = self._send(
+                "INTERFACE_DATA {} {} {} {}".format(
+                    int(surface_id),
+                    int(timestep),
+                    _format_number(time),
+                    _format_number(flow),
+                ),
+                "STARFISH_INTERFACE_DATA",
+            )
+            fields = response.split()
+            if len(fields) != 5:
+                raise CrimsonNetlistWorkerError(
+                    "Malformed INTERFACE_DATA response: {}".format(response)
+                )
+            try:
+                return (
+                    self._parse_protocol_bool(fields[1], "flow-permitted flag"),
+                    self._parse_protocol_bool(
+                        fields[2],
+                        "boundary-type-changed flag",
+                    ),
+                    float(fields[3]),
+                    float(fields[4]),
+                )
+            except ValueError as error:
+                raise CrimsonNetlistWorkerError(
+                    "Non-numeric INTERFACE_DATA response: {}".format(response)
                 ) from error
 
     def compute_update_coefficients(
@@ -584,9 +695,10 @@ class CrimsonNetlistWorkerClient(object):
         """
         Finalize all circuits once after every surface has been updated.
 
-        CRIMSON commits pressure/flow/volume histories, writes its normal output
-        files, and then runs native/Python controllers. Parameter changes made
-        by controllers affect coefficient calculations in the next timestep.
+        CRIMSON commits pressure/flow/volume histories and runs native/Python
+        controllers. Buffered output files are written by `close()` through
+        the worker's `QUIT` handler. Parameter changes made by controllers
+        affect coefficient calculations in the next timestep.
         """
         with self._lock:
             self._require_loaded()
@@ -717,13 +829,7 @@ class CrimsonNetlistWorkerClient(object):
                 return response
 
     def _read_stdout(self):
-        """
-        Read every worker stdout line in order and place it on the response queue.
-
-        This thread is the only code that reads the worker's buffered text
-        stream. It publishes an EOF sentinel after normal exit, forced
-        termination, or a local pipe close.
-        """
+        """Forward worker output to the timeout-aware response queue."""
         process = self._process
         try:
             if process is None or process.stdout is None:
@@ -736,6 +842,7 @@ class CrimsonNetlistWorkerClient(object):
         finally:
             if self._stdout_queue is not None:
                 self._stdout_queue.put(self._stdout_eof)
+
 
     def _require_running(self):
         """Return the live process or raise with recent diagnostic output."""

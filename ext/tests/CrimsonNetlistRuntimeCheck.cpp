@@ -154,6 +154,7 @@ int main()
                 pressure,
                 flow);
             runtime.finalizeTimestep(timestep);
+            runtime.flush();
         }
 
         requireFile(
