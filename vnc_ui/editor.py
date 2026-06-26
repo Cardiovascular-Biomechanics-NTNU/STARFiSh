@@ -7,6 +7,7 @@ from UtilityLib.constants import newestNetworkXml as nxml
 from vnc_ui.scene import VascularScene
 from vnc_ui.scene_items import VesselEdge, JunctionNode
 from vnc_ui.panels import PropertiesPanel
+from vnc_ui.visualization_qt import QtVisualisationWidget
 
 class VascularEditorWidget(QtWidgets.QWidget):
     def __init__(self, enable_visualization_tab=True):
@@ -24,9 +25,17 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.btn_zoom_in = QtWidgets.QPushButton("Zoom In")
         self.btn_zoom_out = QtWidgets.QPushButton("Zoom Out")
         self.btn_fit_screen = QtWidgets.QPushButton("Fit to Screen")
+        
+        self.cb_scale = QtWidgets.QComboBox()
+        self.cb_scale.addItems(["1x", "2x", "5x", "10x", "15x"])
+        self.cb_scale.setCurrentText("5x")
+        self.cb_scale.currentTextChanged.connect(self.change_physical_scale)
+        
         zoom_layout.addWidget(self.btn_zoom_in)
         zoom_layout.addWidget(self.btn_zoom_out)
         zoom_layout.addWidget(self.btn_fit_screen)
+        zoom_layout.addWidget(QtWidgets.QLabel("  Visual Scale:"))
+        zoom_layout.addWidget(self.cb_scale)
         zoom_layout.addStretch()
 
         self.btn_zoom_in.clicked.connect(self.zoom_in)
@@ -83,30 +92,15 @@ class VascularEditorWidget(QtWidgets.QWidget):
         if self._enable_visualization_tab:
             visualization_tab = QtWidgets.QWidget()
             visualization_layout = QtWidgets.QVBoxLayout(visualization_tab)
-            visualization_layout.setContentsMargins(12, 12, 12, 12)
-            visualization_layout.setSpacing(12)
+            visualization_layout.setContentsMargins(0, 0, 0, 0)
+            visualization_layout.setSpacing(0)
 
-            visualization_title = QtWidgets.QLabel("Result Visualization")
-            visualization_title.setStyleSheet("font-size: 18px; font-weight: bold;")
-
-            visualization_note = QtWidgets.QLabel(
-                "Launches the GTK-based 2D visualization in a separate window. "
-                "Only works on Linux with GTK dependencies installed."
-            )
-            visualization_note.setWordWrap(True)
-
-            self.btn_run_visualizer = QtWidgets.QPushButton("Launch 2D Visualizer")
-            self.btn_run_visualizer.setFixedSize(200, 40)
-            self.btn_run_visualizer.clicked.connect(self.launch_visualization)
-
-            visualization_layout.addWidget(visualization_title)
-            visualization_layout.addWidget(visualization_note)
-            visualization_layout.addWidget(self.btn_run_visualizer)
-            visualization_layout.addStretch()
+            self.visualizer_widget = QtVisualisationWidget()
+            visualization_layout.addWidget(self.visualizer_widget)
 
             self.tabs.addTab(visualization_tab, "Result Visualization")
         else:
-            self.btn_open_visualization = None
+            self.visualizer_widget = None
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -130,12 +124,16 @@ class VascularEditorWidget(QtWidgets.QWidget):
         rect.adjust(-margin, -margin, margin, margin)
         self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
 
-    def launch_visualization(self):
-        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualization_2d.py"))
-        try:
-            subprocess.Popen([sys.executable, script_path])
-        except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to launch visualization: {exc}")
+    def change_physical_scale(self, text):
+        val = float(text.replace("x", ""))
+        self.scene.pixels_per_mm = val
+        self.scene.enforce_fixed_lengths()
+        # Ensure new layout bounds are updated
+        rect = self.scene.itemsBoundingRect()
+        if not rect.isEmpty():
+            rect.adjust(-100, -100, 100, 100)
+            self.scene.setSceneRect(rect)
+            self.fit_to_screen()
 
     def add_root(self):
         self.node_count += 1

@@ -5,6 +5,10 @@ from vnc_ui.scene_items import JunctionNode
 PIXELS_PER_MM = 15.0
 
 class VascularScene(QtWidgets.QGraphicsScene):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pixels_per_mm = 5.0  # Default 5x scaling
+
     def drawBackground(self, painter, rect):
         painter.fillRect(rect, QtGui.QColor("#d9dddc"))
 
@@ -51,7 +55,7 @@ class VascularScene(QtWidgets.QGraphicsScene):
                     current_line.setAngle(270)  # 270 is straight down in QGraphicsScene
 
                 # Force the length to perfectly match the physical length_mm property
-                fixed_visual_length = edge.length_mm * PIXELS_PER_MM
+                fixed_visual_length = edge.length_mm * self.pixels_per_mm
                 current_line.setLength(fixed_visual_length)
 
                 # Move the child node to the fixed position
