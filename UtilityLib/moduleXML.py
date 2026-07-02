@@ -179,7 +179,26 @@ def writeNetworkToXML(vascularNetwork, dataNumber = "xxx", networkXmlFile = None
 
                 writeXMLsaveValues(subElement,variable,variableValues)
 
-    xmlFile.write(networkXmlFile,encoding='iso-8859-1')
+    def indent_xml(elem, level=0):
+        i = "\n" + level*"  "
+        if len(elem):
+            if not elem.text or not elem.text.strip():
+                elem.text = i + "  "
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = i
+            for child in elem:
+                indent_xml(child, level+1)
+            if not child.tail or not child.tail.strip():
+                child.tail = i
+        else:
+            if level and (not elem.tail or not elem.tail.strip()):
+                elem.tail = i
+
+    try:
+        xmlFile.write(networkXmlFile, encoding='iso-8859-1', pretty_print=True)
+    except TypeError:
+        indent_xml(root)
+        xmlFile.write(networkXmlFile, encoding='iso-8859-1')
 
 def loadVariablesConversion(variable, variableValueStr, variableUnit, unit = 'unitSI'):
     """

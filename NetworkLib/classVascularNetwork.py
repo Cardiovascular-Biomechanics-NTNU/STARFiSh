@@ -62,7 +62,7 @@ class VascularNetwork(cSBO.StarfishBaseObject):
 
         # simulation Context
         self.totalTime = 1.0  # simulation time in seconds
-        self.CFL = 0.85  # maximal initial CFL number
+        self.CFL = 0.5  # maximal initial CFL number
         self.dt = None  # time step of the simulation determined by the solver
         self.nTSteps = None  # number of timesteps of the simulation case determined by the solver
         self.simulationTime = np.zeros(0)  # array with simulation Time
@@ -92,7 +92,7 @@ class VascularNetwork(cSBO.StarfishBaseObject):
         # initialization controls
         self.initialsationMethod = 'Auto'  # 'Auto', 'MeanFlow', 'MeanPressure', 'ConstantPressure'
         self.initMeanFlow = 0.0  # initial mean flow value (at inflow point)
-        self.initMeanPressure = 0.0  # initial pressure value (at inflow point)
+        self.initMeanPressure = 13332.0  # initial pressure value (at inflow point)
         self.initialisationPhaseExist = True  # bool is False only for 'ConstantPressure'
         self.initPhaseTimeSpan = 0.0  # time span of the init phase
         self.nTstepsInitPhase = 0  # number of timesteps of the initPhase
@@ -113,7 +113,7 @@ class VascularNetwork(cSBO.StarfishBaseObject):
 
         self.boundaryConditions = {}
 
-        self.globalFluid = {'my': 1e-6, 'rho': 1050., 'gamma': 2.0}  # dictionary containing the global fluid data if defined
+        self.globalFluid = {'my': 0.004, 'rho': 1060., 'gamma': 2.0}  # dictionary containing the global fluid data if defined
 
         self.externalStimuli = {}
 

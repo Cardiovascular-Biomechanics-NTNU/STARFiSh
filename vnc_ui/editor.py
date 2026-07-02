@@ -19,7 +19,8 @@ class VascularEditorWidget(QtWidgets.QWidget):
         self.view.setRenderHint(QtGui.QPainter.Antialiasing)
         self.scene.setSceneRect(-800, -800, 1600, 1600)
         self.view.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
-
+        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         # Zoom buttons
         zoom_layout = QtWidgets.QHBoxLayout()
         self.btn_zoom_in = QtWidgets.QPushButton("Zoom In")
@@ -44,7 +45,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
 
         view_container = QtWidgets.QWidget()
         view_layout = QtWidgets.QVBoxLayout(view_container)
-        view_layout.setContentsMargins(0, 0, 0, 0)
+        view_layout.setContentsMargins(0, 15, 0, 0) # Increased top margin to distance zoom buttons from tabs
         view_layout.addLayout(zoom_layout)
         view_layout.addWidget(self.view)
 
@@ -81,7 +82,7 @@ class VascularEditorWidget(QtWidgets.QWidget):
         model_layout = QtWidgets.QHBoxLayout(model_tab)
         model_layout.setContentsMargins(0, 0, 0, 0)
         model_layout.addWidget(splitter)
-        self.tabs.addTab(model_tab, "Model Parameters & Builder")
+        self.tabs.addTab(model_tab, "Model Builder")
 
         # Add 3D Slicer Launcher Tab before result visualization.
         from vnc_ui.slicer_panel import SlicerLauncherPanel
@@ -539,30 +540,36 @@ class VascularEditorWidget(QtWidgets.QWidget):
         # construct vascularNetwork
         vascularNetwork = cVascNw.VascularNetwork()
         
-        # Apply requested defaults for the top portion of input.xml
-        vascularNetwork.totalTime = 1.0
-        vascularNetwork.CFL = 0.5
-        vascularNetwork.timeSaveBegin = 0.0
-        vascularNetwork.minSaveDt = -1.0
-        vascularNetwork.maxMemory = 5000.0
-        vascularNetwork.gravitationalField = False
-        vascularNetwork.gravityConstant = -9.81
+        # Apply dynamic Setup Solver parameters from UI
+        params = self.scene.global_solver_params
         
-        vascularNetwork.solvingSchemeField = 'MacCormack_Flux'
-        vascularNetwork.rigidAreas = False
-        vascularNetwork.simplifyEigenvalues = False
-        vascularNetwork.riemannInvariantUnitBase = 'Pressure'
-        vascularNetwork.automaticGridAdaptation = True
+        vascularNetwork.totalTime = params['totalTime']
+        vascularNetwork.CFL = params['CFL']
+        vascularNetwork.timeSaveBegin = params['timeSaveBegin']
+        vascularNetwork.minSaveDt = params['minSaveDt']
+        vascularNetwork.maxMemory = params['maxMemory']
+        vascularNetwork.gravitationalField = params['gravitationalField']
+        vascularNetwork.gravityConstant = params['gravityConstant']
         
-        vascularNetwork.initialsationMethod = 'Auto'
-        vascularNetwork.initMeanFlow = 0.0
-        vascularNetwork.initMeanPressure = 10000.0
-        vascularNetwork.estimateWindkesselCompliance = 'No'
-        vascularNetwork.compPercentageWK3 = 0.2
-        vascularNetwork.compPercentageTree = 0.8
-        vascularNetwork.compTotalSys = 4.895587352e-08
+        vascularNetwork.solvingSchemeField = params['solvingSchemeField']
+        vascularNetwork.rigidAreas = params['rigidAreas']
+        vascularNetwork.simplifyEigenvalues = params['simplifyEigenvalues']
+        vascularNetwork.riemannInvariantUnitBase = params['riemannInvariantUnitBase']
+        vascularNetwork.automaticGridAdaptation = params['automaticGridAdaptation']
         
-        vascularNetwork.globalFluid = {'my': 0.004, 'rho': 1040.0, 'gamma': 2.0}
+        vascularNetwork.initialsationMethod = params['initialsationMethod']
+        vascularNetwork.initMeanFlow = params['initMeanFlow']
+        vascularNetwork.initMeanPressure = params['initMeanPressure']
+        vascularNetwork.estimateWindkesselCompliance = params['estimateWindkesselCompliance']
+        vascularNetwork.compPercentageWK3 = params['compPercentageWK3']
+        vascularNetwork.compPercentageTree = params['compPercentageTree']
+        vascularNetwork.compTotalSys = params['compTotalSys']
+        
+        vascularNetwork.globalFluid = {
+            'my': params['my'], 
+            'rho': params['rho'], 
+            'gamma': params['gamma']
+        }
 
         vesselData = {}
         # build vessel data entries

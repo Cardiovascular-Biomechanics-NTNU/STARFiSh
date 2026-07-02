@@ -86,8 +86,8 @@ class Vessel(cSBO.StarfishBaseObject):
 
         # FLUID properties TODO: annotate units
         self.applyGlobalFluid   = True              # bool: apply global fluid properties or the ones stored in vessel XML
-        self.my                 = 1.e-6             # blood viscosity
-        self.rho                = 1050.             # blood density
+        self.my                 = 0.004             # blood viscosity
+        self.rho                = 1060.             # blood density
         self.gamma              = 2.0              # velocity profile gamma correction
 
         # vascular Polynomial chaos data dictionary with uncertainty variables
@@ -600,6 +600,5 @@ class Vessel(cSBO.StarfishBaseObject):
         self.positionStart[n]  = positionEndMother ## positionStart
         self.rotToGlobalSys[n] = rotToGlobalSys
         self.netGravity[n]     = netGravity
-
 
 

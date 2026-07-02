@@ -13,9 +13,10 @@ class VesselEdge(QtWidgets.QGraphicsLineItem):
         self.name = name
 
         # 1D Physical Properties
-        self.length_mm = 10.0
-        self.area_start_mm2 = 5.0
-        self.area_end_mm2 = 5.0
+        self.length_mm = 500.0
+        default_area_mm2 = math.pi * (5.0 ** 2)
+        self.area_start_mm2 = default_area_mm2
+        self.area_end_mm2 = default_area_mm2
         self.elasticity_Pa = 1.0e6
         self.vessel_type = "uniform"
         self.geometry_type = "uniform"
@@ -25,8 +26,8 @@ class VesselEdge(QtWidgets.QGraphicsLineItem):
         self.compliance_values_by_type = {}
         self.fluid_values = {
             'applyGlobalFluid': True,
-            'my': 1.0e-6,
-            'rho': 1050.0,
+            'my': 0.004,
+            'rho': 1060.0,
             'gamma': 2.0,
         }
 

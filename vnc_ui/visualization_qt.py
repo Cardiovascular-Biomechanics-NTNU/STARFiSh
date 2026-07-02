@@ -12,6 +12,35 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+# Apply a custom, modern scientific aesthetic
+matplotlib.rcParams.update({
+    "figure.facecolor": "#f8f9fa",
+    "axes.facecolor": "#ffffff",
+    "axes.edgecolor": "#111827",      # Darker axis borders
+    "axes.linewidth": 1.5,            # Thicker axis borders
+    "axes.grid": True,
+    "grid.color": "#ced4da",          # Slightly darker grid lines
+    "grid.linestyle": "--",
+    "grid.alpha": 0.9,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.labelsize": 10,
+    "axes.titlesize": 11,
+    "axes.titleweight": "bold",
+    "xtick.color": "#111827",         # Darker tick marks and labels
+    "ytick.color": "#111827",         # Darker tick marks and labels
+    "text.color": "#111827",
+    "lines.linewidth": 2.0,
+    "font.family": "sans-serif",
+    "font.sans-serif": [
+        "Avenir", "Avenir Next", "Helvetica Neue", "Segoe UI", 
+        "Roboto", "Ubuntu", "Trebuchet MS", "DejaVu Sans", "sans-serif"
+    ],
+    "axes.prop_cycle": matplotlib.cycler(color=[
+        "#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be123c"
+    ])
+})
+
 # Import the minMaxFunction from STARFiSh
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from UtilityLib.processing import minMaxFunction
@@ -28,6 +57,31 @@ class CaseRowWidget(QtWidgets.QWidget):
         
         self.vessels_dict = {}
         self.sim_time = None
+        self.vn = None
+        
+        # Try to automatically load companion XML for derived variables
+        try:
+            from UtilityLib import moduleXML as mXML
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            dir_name = os.path.dirname(file_path)
+            xml_path = os.path.join(dir_name, base_name + '.xml')
+            
+            if not os.path.exists(xml_path):
+                xml_path = os.path.join(dir_name, 'input.xml')
+                if not os.path.exists(xml_path):
+                    xml_path = os.path.join(os.path.dirname(dir_name), 'input.xml')
+            
+            if os.path.exists(xml_path):
+                # Suppress stdout to keep console clean during XML parsing
+                import io
+                import contextlib
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.vn = mXML.loadNetworkFromXML(base_name, networkXmlFile=xml_path, pathSolutionDataFilename=file_path)
+                    self.vn.linkSolutionData()
+                    self.vn.loadSolutionDataRange(values=["All"])
+                print(f"[STARFiSh UI] Loaded companion XML: {xml_path}")
+        except Exception as e:
+            print(f"[STARFiSh UI] Could not load companion XML: {e}")
         
         if 'VascularNetwork' in self.h5_file:
             vn = self.h5_file['VascularNetwork']
@@ -97,6 +151,14 @@ class QtVisualisationWidget(QtWidgets.QWidget):
             'Plot P,Q': ['Psol', 'Qsol'],
             'Plot Area, Compliance': ['Asol', 'Csol'],
             'Plot CFL, wave speed': ['CFL', 'csol']
+        }
+        self.axis_labels = {
+            'Psol': 'Pressure (Pa)',
+            'Qsol': 'Flow (m^3/s)',
+            'Asol': 'Area (m^2)',
+            'Csol': 'Compliance (m^2/Pa)',
+            'CFL': 'CFL (-)',
+            'csol': 'Wave speed (m/s)',
         }
 
         self.setup_ui()
@@ -311,10 +373,30 @@ class QtVisualisationWidget(QtWidgets.QWidget):
             
             for cw in case_widgets:
                 vessel_name, v_group = cw.get_selected_vessel()
-                if not v_group or var_key not in v_group:
+                if not v_group:
                     continue
 
-                data = v_group[var_key][:]
+                data = None
+                
+                # Check for dynamic derived variables if we have a full VascularNetwork
+                if cw.vn is not None and var_key in ["csol", "CFL"]:
+                    try:
+                        vessel_id = int(vessel_name.split('-')[-1].strip())
+                        vessel = cw.vn.vessels[vessel_id]
+                        if var_key == "csol":
+                            data = vessel.csol
+                        elif var_key == "CFL":
+                            data = vessel.csol * cw.vn.dt / vessel.dz[0]
+                    except Exception as e:
+                        print(f"Error extracting derived variable {var_key}: {e}")
+                
+                # Fallback to reading raw array from HDF5 if not dynamic
+                if data is None and var_key in v_group:
+                    data = v_group[var_key][:]
+                    
+                if data is None:
+                    continue
+
                 case_label = f"Case {cw.case_id}: {vessel_name}"
                 
                 # Update global min and max for fixed Y-axis
@@ -346,7 +428,7 @@ class QtVisualisationWidget(QtWidgets.QWidget):
                             print(f"MinMax plot error: {e}")
                             
                     ax.set_xlabel("Time (s)")
-                    ax.set_ylabel(var_key)
+                    ax.set_ylabel(self.axis_labels.get(var_key, var_key))
                     if ax_idx == 0:
                         ax.set_title(f"Plot over time (Node {node_idx})")
                     plotted_anything = True
@@ -354,9 +436,8 @@ class QtVisualisationWidget(QtWidgets.QWidget):
                 elif "Spatial Profile" in plot_type:
                     length = v_group.attrs.get('length', None)
                     if length is not None:
-                        # Length is usually in meters, convert to cm
-                        x = np.linspace(0, length, data.shape[1]) * 100.0
-                        xlabel = "Position (cm)"
+                        x = np.linspace(0, length, data.shape[1])
+                        xlabel = "Position (m)"
                     elif 'x' in v_group:
                         x = v_group['x'][:]
                         xlabel = "Position (x)"
@@ -378,14 +459,12 @@ class QtVisualisationWidget(QtWidgets.QWidget):
                             print(f"MinMax plot error: {e}")
                     
                     ax.set_xlabel(xlabel)
-                    ax.set_ylabel(var_key)
+                    ax.set_ylabel(self.axis_labels.get(var_key, var_key))
                     if ax_idx == 0:
                         ax.set_title(f"Plot along vessel (Time Step {time_idx})")
                     plotted_anything = True
 
-            if show_legend and plotted_anything:
-                ax.legend()
-                
+
             if plotted_anything and global_y_min != float('inf') and global_y_max != float('-inf'):
                 y_range = global_y_max - global_y_min
                 if y_range == 0:
@@ -397,5 +476,12 @@ class QtVisualisationWidget(QtWidgets.QWidget):
                 ax.text(0.5, 0.5, f"Variable '{var_key}' not found in selected vessels.", 
                              ha='center', va='center', transform=ax.transAxes)
 
-        self.figure.tight_layout()
+        if show_legend and plotted_anything:
+            handles, labels = axes[0].get_legend_handles_labels()
+            # Place legend at the top of the figure
+            self.figure.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.90), ncol=3, fontsize='small')
+            # Leave top 10% of the figure empty so the legend doesn't overlap the title
+            self.figure.tight_layout(rect=[0, 0, 1, 0.90])
+        else:
+            self.figure.tight_layout()
         self.canvas.draw()

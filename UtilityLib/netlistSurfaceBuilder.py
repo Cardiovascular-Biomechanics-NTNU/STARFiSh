@@ -23,7 +23,6 @@ MAP_FIELDS = [
     "isHeartModel",
 ]
 
-
 def _read_next_valid_line(lines, index):
     """Return ``(tokens, new_index)`` while skipping comments and blank lines."""
     while index < len(lines):

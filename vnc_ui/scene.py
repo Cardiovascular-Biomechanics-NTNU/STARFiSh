@@ -8,6 +8,30 @@ class VascularScene(QtWidgets.QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pixels_per_mm = 5.0  # Default 5x scaling
+        self.global_solver_params = {
+            'totalTime': 1.0,
+            'CFL': 0.5,
+            'timeSaveBegin': 0.0,
+            'minSaveDt': -1.0,
+            'maxMemory': 5000.0,
+            'gravitationalField': False,
+            'gravityConstant': -9.81,
+            'solvingSchemeField': 'MacCormack_Flux',
+            'rigidAreas': False,
+            'simplifyEigenvalues': False,
+            'riemannInvariantUnitBase': 'Pressure',
+            'automaticGridAdaptation': True,
+            'initialsationMethod': 'ConstantPressure',
+            'initMeanFlow': 0.0,
+            'initMeanPressure': 13332.0,
+            'estimateWindkesselCompliance': 'No',
+            'compPercentageWK3': 0.2,
+            'compPercentageTree': 0.8,
+            'compTotalSys': 4.895587352e-08,
+            'my': 0.004,
+            'rho': 1060.0,
+            'gamma': 2.0
+        }
 
     def drawBackground(self, painter, rect):
         painter.fillRect(rect, QtGui.QColor("#d9dddc"))

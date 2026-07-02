@@ -172,28 +172,7 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         desc.setObjectName("panelSubtitle")
         desc.setWordWrap(True)
         
-        # 1. Geometry Import
-        file_group = QtWidgets.QGroupBox("Geometry")
-        file_layout = QtWidgets.QVBoxLayout(file_group)
-        file_layout.setSpacing(8)
-        
-        self.txt_file = QtWidgets.QLineEdit()
-        self.txt_file.setPlaceholderText("Optional .stl or .vtp file to load automatically")
-        self.txt_file.setReadOnly(True)
-        
-        file_row = QtWidgets.QHBoxLayout()
-        file_row.setSpacing(8)
-        self.btn_select_file = QtWidgets.QPushButton("Browse")
-        self.btn_select_file.clicked.connect(self.select_file)
-        self.btn_clear_file = QtWidgets.QPushButton("Clear")
-        self.btn_clear_file.clicked.connect(self.clear_file)
-        
-        file_row.addWidget(self.txt_file)
-        file_row.addWidget(self.btn_select_file)
-        file_row.addWidget(self.btn_clear_file)
-        file_layout.addLayout(file_row)
-        
-        # 2. Slicer Launch
+        # 1. Slicer Launch
         launch_group = QtWidgets.QGroupBox("Slicer Helper")
         launch_layout = QtWidgets.QVBoxLayout(launch_group)
         launch_layout.setSpacing(10)
@@ -224,9 +203,15 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         launch_layout.addWidget(self.btn_launch_slicer)
         launch_layout.addWidget(self.lbl_status)
 
-        setup_group = QtWidgets.QGroupBox("Setup")
-        setup_layout = QtWidgets.QVBoxLayout(setup_group)
-        setup_layout.setSpacing(6)
+        # Setup Collapsible Section
+        self.btn_setup_toggle = QtWidgets.QPushButton("Slicer Helper Setup Guide ▾")
+        self.btn_setup_toggle.setCheckable(True)
+        self.btn_setup_toggle.setChecked(False)
+        self.btn_setup_toggle.setObjectName("toggleButton")
+        
+        self.setup_content = QtWidgets.QWidget()
+        setup_layout = QtWidgets.QVBoxLayout(self.setup_content)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
         setup_text = QtWidgets.QLabel(
             "Linux bundled install: from the repository root, run "
             "`bash Slicer/install_slicer_linux.sh`.\n"
@@ -237,21 +222,13 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         setup_text.setObjectName("helpText")
         setup_text.setWordWrap(True)
         setup_layout.addWidget(setup_text)
+        self.setup_content.setVisible(False)
         
-        workflow_group = QtWidgets.QGroupBox("Workflow")
-        workflow_layout = QtWidgets.QVBoxLayout(workflow_group)
-        workflow_layout.setSpacing(6)
-        for step in (
-            "1. Load vessel geometry",
-            "2. Generate or place endpoints",
-            "3. Remove endpoints that do not belong",
-            "4. Extract centerline curves",
-            "5. Review branch lengths",
-        ):
-            label = QtWidgets.QLabel(step)
-            label.setObjectName("workflowStep")
-            workflow_layout.addWidget(label)
-
+        def toggle_setup(checked):
+            self.setup_content.setVisible(checked)
+            self.btn_setup_toggle.setText("Slicer Helper Setup Guide ▴" if checked else "Slicer Helper Setup Guide ▾")
+            
+        self.btn_setup_toggle.toggled.connect(toggle_setup)
         report_group = QtWidgets.QGroupBox("Saved Centerline Report")
         report_layout = QtWidgets.QVBoxLayout(report_group)
         report_layout.setSpacing(8)
@@ -298,8 +275,8 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         self.report_scene = ReportScene(self)
         self.report_view = QtWidgets.QGraphicsView(self.report_scene)
         self.report_view.setMinimumHeight(800)
-        self.report_view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.report_view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.report_view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.report_view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.report_view.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.report_view.setRenderHint(QtGui.QPainter.Antialiasing)
         self.report_view.setObjectName("reportGraph")
@@ -311,10 +288,9 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         
         main_layout.addWidget(title)
         main_layout.addWidget(desc)
-        main_layout.addWidget(setup_group)
-        main_layout.addWidget(workflow_group)
-        main_layout.addWidget(file_group)
         main_layout.addWidget(launch_group)
+        main_layout.addWidget(self.btn_setup_toggle)
+        main_layout.addWidget(self.setup_content)
         main_layout.addWidget(report_group)
 
         self.apply_style()
@@ -377,56 +353,38 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
                 alternate-background-color: #252a31;
                 selection-background-color: #2b5b84;
             }
-            QPushButton {
-                background: #3b414a;
-                border: 1px solid #58606b;
-                border-radius: 4px;
-                color: #ffffff;
-                min-height: 32px;
-                padding: 6px 10px;
+
+            QPushButton#toggleButton {
+                background: transparent;
+                color: #94a3b8;
+                text-align: left;
+                padding: 4px;
+                min-height: 24px;
             }
-            QPushButton:hover {
-                background: #4a5360;
-            }
-            QPushButton:pressed {
-                background: #2f363f;
-            }
-            QPushButton#primaryButton {
-                background: #2b5b84;
-                border: 1px solid #3e78aa;
-                font-size: 14px;
-                font-weight: 700;
-                min-height: 44px;
-            }
-            QPushButton#primaryButton:hover {
-                background: #326a9a;
+            QPushButton#toggleButton:hover {
+                color: #cbd5e1;
+                background: rgba(255, 255, 255, 0.05);
             }
             QLabel#statusLabel {
-                color: #b8c0cc;
+                color: #94a3b8;
                 font-style: italic;
             }
             QLabel#pathLabel {
-                color: #b8c0cc;
-                background: #1f2328;
-                border: 1px solid #3f4650;
-                border-radius: 4px;
-                padding: 8px;
-            }
-            QLabel#workflowStep {
-                background: #252a31;
-                border: 1px solid #3f4650;
-                border-radius: 4px;
-                padding: 8px 10px;
-                font-weight: 400;
+                color: #94a3b8;
+                background: #151515;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 10px;
+                font-family: monospace;
             }
             QLabel#helpText {
-                color: #c9d1d9;
-                background: #252a31;
-                border: 1px solid #3f4650;
-                border-radius: 4px;
-                padding: 10px;
+                color: #cbd5e1;
+                background: #202020;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 12px;
                 font-weight: 400;
-                line-height: 1.35;
+                line-height: 1.4;
             }
         """)
 
@@ -480,16 +438,6 @@ class SlicerLauncherPanel(QtWidgets.QWidget):
         self.slicer_exec = self.find_slicer_executable()
         self.settings.remove("slicerExecutable")
         self.update_slicer_status()
-
-    def select_file(self):
-        fname, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select 3D Geometry", "", "3D Surface (*.stl *.vtp)")
-        if fname:
-            self.selected_file = fname
-            self.txt_file.setText(fname)
-
-    def clear_file(self):
-        self.selected_file = None
-        self.txt_file.clear()
 
     def load_branch_report(self):
         fname, _ = QtWidgets.QFileDialog.getOpenFileName(
