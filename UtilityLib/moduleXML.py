@@ -21,6 +21,7 @@ from .constants import variablesDict
 from .constants import unitsDictSI as unitsDict
 from .constants import newestNetworkXmlVersion
 from . import moduleFilePathHandler as mFPH
+from .xml_expression import eval_expr
 
 #sys.path.append(cur + '/../VascularPolynomialChaosLib')
 from VascularPolynomialChaosLib.classRandomInputManager import RandomInputManager
@@ -250,8 +251,8 @@ def loadVariablesConversion(variable, variableValueStr, variableUnit, unit = 'un
         for variableType in variableTypes:
 
             if variableType in ['float','int']:
-                try: variableValue = float(eval(variableValueString))
-                except (ValueError, TypeError, NameError): convertError.append('float')
+                try: variableValue = eval_expr(variableValueString)
+                except (ValueError, TypeError, SyntaxError): convertError.append('float')
 
                 if variablesDict[variable][unit]:
                     try:
@@ -614,7 +615,6 @@ def loadNetworkFromXML(networkName ,
                 vascularNetwork.update(vascularNetworkData)
 
     return vascularNetwork
-
 
 
 

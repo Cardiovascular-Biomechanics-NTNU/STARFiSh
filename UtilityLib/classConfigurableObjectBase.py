@@ -2,6 +2,7 @@ import os,sys
 
 from UtilityLib.constants import unitsDictSI as unitsDict
 from UtilityLib.moduleHelperFunctions import getGitHash
+from UtilityLib.xml_expression import eval_expr
 
 try:
     from lxml import etree
@@ -429,8 +430,8 @@ class ConfigurableObjectBase(object):
             for variableType in variableTypes:
                 
                 if variableType in [float,int]:
-                    try: variableValue = float(eval(variableValueString))
-                    except ValueError: convertError.append('float') 
+                    try: variableValue = eval_expr(variableValueString)
+                    except (ValueError, TypeError, SyntaxError): convertError.append('float')
                     
                     if externVariable.unit != None and variableUnit != None:
                         if ' ' in variableUnit:
