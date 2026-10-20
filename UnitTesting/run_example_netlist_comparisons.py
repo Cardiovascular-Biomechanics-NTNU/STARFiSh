@@ -167,7 +167,17 @@ def classify(source):
         if boundary.tag in ("Flow-FromFile", "Pressure-FromFile"):
             filename = boundary.findtext("filePathName")
             if filename and not (source.parent / filename).is_file():
-                issues.append("Missing declared waveform: " + filename)
+                fallbacks = [p for p in source.parent.iterdir() if p.is_file()
+                             and p.name.lower().endswith(".csv")
+                             and "inflow" in p.name.lower() and ":" not in p.name]
+                preferred = [p for p in fallbacks if "_template" not in p.name]
+                if len(preferred) == 1:
+                    fallbacks = preferred
+                if len(fallbacks) == 1:
+                    issues.append("Declared waveform path {} is unavailable; Starfish uses local fallback {}.".format(
+                        filename, fallbacks[0].name))
+                else:
+                    issues.append("Missing declared waveform: " + filename)
     if real and not (source.parent / "netlist_surfaces.xml").is_file():
         issues.append("Missing netlist_surfaces.xml")
     for endpoint in root.findall("./boundaryConditions/boundaryCondition"):
@@ -175,9 +185,11 @@ def classify(source):
         if len(outlets) > 1:
             issues.append("Vessel {} declares multiple outlet conditions: {}".format(
                 endpoint.get("vesselId"), ", ".join(outlets)))
+    notes = source.parent / "netlist_comparison_notes.md"
     return {"configured_duration_s": float(root.findtext("./simulationContext/totalTime")),
             "vessels": len(root.findall("./vessels/vessel")),
             "input_issues": issues,
+            "comparison_notes": notes.read_text().strip() if notes.is_file() else "",
             "model": "circuit netlist" if real else "constant netlist law" if netlists else "native Starfish control"}
 
 
@@ -272,6 +284,8 @@ def case_markdown(row):
         lines += ["Input observations:", ""]
         lines += ["- " + issue for issue in row["input_issues"]]
         lines += [""]
+    if row.get("comparison_notes"):
+        lines += [row["comparison_notes"], ""]
     lines += ["Both backends use private, identical input snapshots with the original duration.",
               "C++ is run first. C++ failures skip the Python comparison.",
               "Native controls and constant coefficient boundaries do not execute circuit adapters.", "",
@@ -347,6 +361,11 @@ def summary_markdown(rows, skipped_assets, examples=ROOT / "examples"):
             *(number(peak(row["accuracy"], "netlist", kind)) for kind in ("pressure", "flow", "volume")),
             number(row["cpp"]["netlist_seconds"]), number(row["python"]["netlist_seconds"])))
     lines += [""]
+    noted = [row for row in rows if row.get("comparison_notes")]
+    if noted:
+        lines += ["## Case notes", ""]
+        for row in noted:
+            lines += ["### " + row["case"], "", row["comparison_notes"], ""]
     if skipped:
         lines += ["## Cases skipped after a C++ failure", ""]
         for row in rows:
@@ -358,7 +377,11 @@ def summary_markdown(rows, skipped_assets, examples=ROOT / "examples"):
         lines += [""]
     lines += ["## Directories without a runnable network", ""]
     lines += ["- " + item for item in skipped_assets]
-    lines += ["", "Reproduce with `python3 -B UnitTesting/run_example_netlist_comparisons.py`.",
+    reproduce = "python3 -B UnitTesting/run_example_netlist_comparisons.py"
+    if examples.resolve() != (ROOT / "examples").resolve():
+        import shlex
+        reproduce += " --examples " + shlex.quote(os.path.relpath(examples, ROOT))
+    lines += ["", "From the repository root, reproduce with `{}`.".format(reproduce),
               "Each execution allocates new per-case result directories.", ""]
     return "\n".join(lines)
 
@@ -374,10 +397,13 @@ def main():
         raise SystemExit(worker_run(args.run_case, args.backend, args.target))
     examples = args.examples.resolve()
     rows = []
-    assets = ["`1d-hemorrhage_heart`: geometry and legacy controller assets; no network input XML.",
-              "The top-level `netlist_surfaces.xml` is a circuit library, not a complete Starfish case.",
-              "Nested branch DAT/XML exports are circuit assets, not additional 1D input cases."]
-    for source in discover(examples):
+    sources = list(discover(examples))
+    assets = ["`{}`: supporting assets; no runnable network input XML.".format(path.name)
+              for path in sorted(examples.iterdir())
+              if path.is_dir() and path.name not in (OUTPUT_NAME, "__pycache__", "results")
+              and not any(path in source.parents for source in sources)]
+    assets.append("Branch DAT/XML exports and circuit-only XML files are supporting assets, not additional 1D input cases.")
+    for source in sources:
         case_name = str(source.parent.relative_to(examples))
         if source.name != "input.xml":
             case_name += " / " + source.name
