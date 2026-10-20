@@ -1,0 +1,353 @@
+{
+  "python": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:16:10) [GCC 11.2.0]",
+  "numpy": "2.4.0",
+  "netlist_source": "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py",
+  "worker": "/home/sadid/starfish/ext/build/crimson_netlist_worker",
+  "rtol": 5e-11,
+  "atol": {
+    "slope": 1e-06,
+    "pressure": 1e-08,
+    "flow": 1e-12,
+    "volume": 1e-12,
+    "area": 1e-14,
+    "time": 1e-14
+  },
+  "results": [
+    {
+      "name": "resistor",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "reversed_resistor",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "rcr_si",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "rcr_alpha",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0
+      ],
+      "alfi": 0.6,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 2.2737367544323206e-13,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "multi_rcr_si",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0,
+        7
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 5.684341886080802e-14,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "mixed_rc_l_fixed_flow",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0,
+        7,
+        42
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 1.7763568394002505e-15,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "diodes",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0,
+        7,
+        42
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 48,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; sign reverses every 4 steps; blocked P=+/-1000, Q=0",
+      "status": "passed"
+    },
+    {
+      "name": "pressure_chambers",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0,
+        7,
+        42
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "doubling_controller",
+      "kind": "identical-port replay",
+      "steps": 8,
+      "surfaces": [
+        0
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "single_vessel_resistor",
+      "kind": "complete STARFiSh 1D solve",
+      "duration_s": 1.0,
+      "steps": 474,
+      "vessel_datasets": 3,
+      "max_abs_error": {
+        "pressure": 0.0,
+        "flow": 0.0,
+        "area": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "input": "existing case inlet CSV",
+      "status": "passed"
+    },
+    {
+      "name": "single_vessel_rcr",
+      "kind": "complete STARFiSh 1D solve",
+      "duration_s": 1.0,
+      "steps": 474,
+      "vessel_datasets": 3,
+      "max_abs_error": {
+        "pressure": 0.0,
+        "flow": 0.0,
+        "area": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "input": "existing case inlet CSV",
+      "status": "passed"
+    },
+    {
+      "name": "bifurcation_rcr",
+      "kind": "complete STARFiSh 1D solve",
+      "duration_s": 1.0,
+      "steps": 459,
+      "vessel_datasets": 9,
+      "max_abs_error": {
+        "pressure": 0.0,
+        "flow": 0.0,
+        "area": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "input": "existing case inlet CSV",
+      "status": "passed"
+    },
+    {
+      "name": "bifurcation_heart",
+      "kind": "complete STARFiSh 1D solve",
+      "duration_s": 1.0,
+      "steps": 448,
+      "vessel_datasets": 3,
+      "max_abs_error": {
+        "pressure": 0.0,
+        "flow": 0.0,
+        "area": 0.0,
+        "history": {
+          "pressure": 1.000444171950221e-11,
+          "flow": 1.0842021724855044e-19,
+          "volume": 0.0
+        }
+      },
+      "input": "existing SI heart elastance law",
+      "status": "passed"
+    },
+    {
+      "name": "plain_volume_trackers",
+      "kind": "identical-port replay",
+      "steps": 64,
+      "surfaces": [
+        0,
+        7,
+        42
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 1.7763568394002505e-15,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+      "status": "passed"
+    },
+    {
+      "name": "bleed_controller_trigger",
+      "kind": "identical-port replay",
+      "steps": 1604,
+      "surfaces": [
+        0,
+        7,
+        42
+      ],
+      "alfi": 1.0,
+      "max_abs_error": {
+        "slope": 0.0,
+        "pressure": 0.0,
+        "history": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "volume": 0.0
+        }
+      },
+      "transition_flag_differences": 0,
+      "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+      "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+      "status": "passed"
+    }
+  ],
+  "passed": true,
+  "validation_date": "2026-10-20",
+  "focused_adapter_tests_passed": 7,
+  "starfish_base_revision": "b9f54844ff04d492f97ab899fb050fcc2158969c",
+  "netlist_py_base_revision": "b21c1fb442676aba8337ce8b49c78b1944b3ab84",
+  "revision_note": "Base revisions identify the checkouts; working-tree changes are not implied absent.",
+  "worker_sha256": "82c124e126407acc3ed2d73d10ae324b1249f805ca258b0f2d7cc138c0586227"
+}

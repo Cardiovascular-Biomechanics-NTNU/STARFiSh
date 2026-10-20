@@ -57,3 +57,4 @@ CTestTestfile.cmake
 _deps/
 ext/build/
 NetlistEditor/build/
+starfish-crimson-gui/

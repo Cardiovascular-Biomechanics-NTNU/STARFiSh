@@ -10,8 +10,8 @@ class NetlistBoundaryManager(object):
 
     def __init__(self):
         """
-        Start with no registered STARFiSh boundaries and no loaded CRIMSON
-        bridge. The bridge is created lazily the first time a real netlist
+        Start with no registered STARFiSh boundaries and no loaded NumPy
+        netlist runtime. It is created lazily the first time a real netlist
         coefficient is requested.
         """
         self.boundaries = {}
@@ -29,7 +29,7 @@ class NetlistBoundaryManager(object):
         STARFiSh run outputs live under results/SolutionData_<number>. The
         CRIMSON netlist writer emits relative file names such as
         netlistPressures_surface_0.dat, so the adapter receives the same
-        solution directory and tells the C++ bridge to write from there.
+        solution directory and writes accepted circuit histories there.
         """
         self.output_directory = output_directory
         if self.adapter is not None:
@@ -56,6 +56,12 @@ class NetlistBoundaryManager(object):
         coefficients.
         """
         surface_id = int(surface_id)
+        existing = self.boundaries.get(surface_id)
+        if existing is not None:
+            for name, requested in (("vessel_id", vessel_id), ("position", position)):
+                if existing[name] is not None and requested is not None and existing[name] != requested:
+                    raise ValueError("surfaceId {} is registered to conflicting {} values: {} and {}".format(
+                        surface_id, name, existing[name], requested))
         if netlist_file is not None:
             self.set_netlist_file(netlist_file)
         self.boundaries[surface_id] = {
@@ -116,8 +122,9 @@ class NetlistBoundaryManager(object):
 
             (flow_permitted, boundary_type_changed, dp_dq, Hop)
 
-        This combines the old status and coefficient requests into one worker
-        round-trip for the active coupling path.
+        The NumPy adapter supplies the status and coefficients together. The
+        previous worker request/response implementation remains commented out
+        in _get_adapter for reference.
         """
         del pressure
         surface_id = int(surface_id)
@@ -174,8 +181,8 @@ class NetlistBoundaryManager(object):
         Start CRIMSON's global netlist timestep once before boundary solves.
 
         This method now only marks the active timestep on the STARFiSh side.
-        The first real coefficient request triggers CRIMSON's actual
-        `initialiseAtStartOfTimestep()` call through the worker runtime.
+        The first real coefficient request triggers the NumPy manager's
+        start-of-timestep circuit initialization.
         """
         timestep = int(timestep)
         if self._active_timestep == timestep:
@@ -260,7 +267,7 @@ class NetlistBoundaryManager(object):
 
     def close(self):
         """
-        Flush and stop the simulation-scoped CRIMSON worker, then reset state.
+        Flush accepted NumPy circuit histories, then reset simulation state.
 
         The default manager is process-wide, so a complete reset is required
         before another case can be loaded in the same Python process.
@@ -289,18 +296,27 @@ class NetlistBoundaryManager(object):
 
     def _get_adapter(self, dt):
         """
-        Lazily construct the one Python-to-C++ adapter for this case.
+        Lazily construct the NumPy/reference netlist_py adapter for this case.
 
         The manager keeps STARFiSh boundary bookkeeping. The adapter only owns
-        the compiled CRIMSON bridge for the global netlist_surfaces.xml file.
+        the standalone circuit state for the global netlist_surfaces.xml file.
         """
         if self.netlist_file is None:
             raise ValueError(
                 "Netlist adapter mode requires netlist_surfaces.xml next to input.xml."
             )
         if self.adapter is None:
-            from UtilityLib.crimsonNetlistAdapter import CrimsonNetlistAdapter
-            self.adapter = CrimsonNetlistAdapter(
+            # Previous C++ worker integration retained for future reference.
+            # from UtilityLib.crimsonNetlistAdapter import CrimsonNetlistAdapter
+            # self.adapter = CrimsonNetlistAdapter(
+            #     self.netlist_file,
+            #     delt=dt,
+            #     surface_ids=self._real_surface_ids(),
+            #     output_directory=self.output_directory,
+            # )
+            # self.adapter.load(dt)
+            from UtilityLib.netlistPyAdapter import NetlistPyAdapter
+            self.adapter = NetlistPyAdapter(
                 self.netlist_file,
                 delt=dt,
                 surface_ids=self._real_surface_ids(),

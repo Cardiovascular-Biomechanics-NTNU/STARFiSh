@@ -1,0 +1,5120 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=22mm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx,xcolor}
+\usepackage{array,longtable,booktabs,listings}
+\usepackage{hyperref}
+\definecolor{navy}{HTML}{18334D}
+\definecolor{linkblue}{HTML}{176B91}
+\definecolor{codebg}{HTML}{F2F5F7}
+\hypersetup{colorlinks=true,linkcolor=linkblue,urlcolor=linkblue,
+ pdftitle={STARFiSh and Python CRIMSON: Mathematics and JAX Porting Guide},
+ pdfauthor={Learning guide and implementation analysis},
+ bookmarksnumbered=false,breaklinks=true}
+\urlstyle{same}
+\setcounter{secnumdepth}{0}
+\setcounter{tocdepth}{1}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 1pt}
+\setlength{\emergencystretch}{3em}
+\sloppy
+\allowdisplaybreaks[1]
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,
+ breakatwhitespace=false,columns=fullflexible,keepspaces=true,
+ showstringspaces=false,backgroundcolor=\color{codebg},
+ frame=single,rulecolor=\color{black!15},xleftmargin=5pt,xrightmargin=5pt,
+ aboveskip=8pt,belowskip=8pt}
+\title{\color{navy}\Huge STARFiSh and Python CRIMSON\\[8pt]
+ \Large Mathematics and JAX Porting Guide}
+\author{A detailed learning guide from equations to implementation}
+\date{19 October 2026}
+\begin{document}
+\maketitle
+\vspace{12pt}
+\begin{center}
+\large Starting from units, arrays, derivatives and conservation laws\\[5pt]
+\normalsize Current STARFiSh formulas, direct Python-netlist coupling,\\
+and the changes needed for a JAX numerical backend.
+\end{center}
+\vfill
+\begin{quote}
+This document distinguishes physical models, inspected implementation behavior,
+and proposed porting designs. The numerical solvers were not modified.
+\end{quote}
+\clearpage
+\tableofcontents
+\clearpage
+A learning document for a reader starting without prior knowledge of blood-flow modelling, numerical methods, NumPy, or JAX.
+
+Prepared: 19 October 2026.
+
+Source basis: the current working copies of STARFiSh at \texttt{/\allowbreak{}home/\allowbreak{}sadid/\allowbreak{}starfish} and the standalone Python netlist project at \texttt{/\allowbreak{}home/\allowbreak{}sadid/\allowbreak{}crimson/\allowbreak{}cfs\_\allowbreak{}reg/\allowbreak{}CRIMSONFlowsolver/\allowbreak{}flowsolver/\allowbreak{}netlist\_\allowbreak{}py}. Their repository base commits at inspection were \texttt{b9f5484} and \texttt{4d94268}, respectively. A base commit is a reference point, not a claim that the working tree is unmodified.
+
+This is an explanatory document and a proposed porting design. No numerical solver was changed to produce it. Existing tests and documentation were inspected; scientific accuracy, performance, and the full compatibility of the two projects were not established by running them.
+
+\clearpage
+\section{How to read this guide}
+The central idea is that STARFiSh models blood moving through flexible tubes, while the Python CRIMSON netlist models connected pressure-flow components. A simulation advances both systems through many small time steps. JAX changes how those calculations are represented and executed; it does not decide which physical equations are correct.
+
+Three labels distinguish statements throughout this document:
+
+
+\begin{itemize}
+\item \textbf{Physical model:} the mathematical relationship being represented.
+
+
+\item \textbf{Current implementation:} what the inspected source actually calculates.
+
+
+\item \textbf{Proposed JAX port:} a design to implement and compare; it is not already installed in STARFiSh.
+
+
+\end{itemize}
+An explanation of a standard physical equation is not proof that every current code path discretizes it identically. Where the source differs, the difference is described explicitly.
+
+Read chapters 1-5 first for the vocabulary. Chapters 6-15 explain the STARFiSh mathematics and algorithms. Chapters 16-20 explain the Python netlist and how to couple it to STARFiSh. Chapters 21-26 explain postprocessing, uncertainty, JAX, and the software changes. Chapters 27-30 cover verification, delivery, and guided exercises. The appendices provide a symbol dictionary, source map, feature inventory, and references.
+
+You do not need to memorize the equations. For each equation, first ask: what quantities go in, what comes out, and what changes when time advances?
+
+\clearpage
+\section{1. What the two simulators represent}
+\subsection{1.1 A vessel is a flexible tube}
+Imagine a long, flexible hose. Pumping fluid into it produces both motion of fluid and a change in the hose's width. A pressure disturbance can travel along the hose much faster than an individual parcel of fluid.
+
+STARFiSh represents a vessel using values at several positions along its length. At each position it tracks:
+
+
+\begin{itemize}
+\item Pressure: how strongly the fluid pushes.
+
+
+\item Flow: how much fluid crosses the section per second.
+
+
+\item Area: the size of the opening through which the fluid moves.
+
+
+\end{itemize}
+A network connects vessels at branches and joins. The connections must conserve flow and satisfy the selected pressure relationship.
+
+\subsection{1.2 What \textquotedblleft{}1D\textquotedblright{} means}
+\textquotedblleft{}1D\textquotedblright{}, or one dimensional, means that the main independent spatial coordinate follows the vessel's length. The code does not compute a separate velocity at every point across the circular section.
+
+A cross-section-averaged velocity and a profile assumption replace the detailed cross-sectional velocity field. This saves a great deal of computation, but it is a modelling approximation.
+
+The vessel can still have a position and orientation in three-dimensional space. That orientation affects gravity and visualization. It does not turn the fluid calculation into a full three-dimensional flow calculation.
+
+\subsection{1.3 What \textquotedblleft{}0D\textquotedblright{} means}
+A zero-dimensional model has no resolved distance along a vessel. Instead, components relate pressure, flow, and stored volume.
+
+Examples are:
+
+
+\begin{itemize}
+\item A resistance: a pressure difference drives a flow.
+
+
+\item A compliance: pressure rises when additional volume is stored.
+
+
+\item An inertance: changing flow requires a pressure difference.
+
+
+\item A diode or valve: a component changes behavior according to its state.
+
+
+\item A pressure chamber: pressure depends on stored volume and chamber stiffness.
+
+
+\end{itemize}
+The Python CRIMSON netlist is such a component network. Its graph describes which components connect which pressure nodes.
+
+\subsection{1.4 Why combine them?}
+A detailed arterial segment may be represented by a 1D vessel. Smaller downstream vessels may be represented by a 0D circuit. The circuit determines the load felt at the end of the vessel.
+
+The interface has a pressure and a flow. Those values must agree between the two models after allowing for units and the chosen positive flow direction.
+
+The Python netlist is already a standalone project with readable \texttt{*\_\allowbreak{}reference.\allowbreak{}py} and JAX \texttt{*\_\allowbreak{}jax.\allowbreak{}py} implementations. The proposed integration is direct Python-to-Python. A C++ worker and embedded Python 2 runtime are historical features of the current STARFiSh adapter, not requirements of the target integration.
+
+Source: \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/README.md}{Python netlist project overview}.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\linewidth]{/home/sadid/starfish/docs/learning_guide_assets/vessel_nodes.pdf}
+\caption{A vessel represented by five spatial nodes.}
+\end{figure}
+
+
+\clearpage
+\section{2. Numbers, units, and symbols}
+\subsection{2.1 The quantities that appear most often}
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Usual STARFiSh unit} \\
+\midrule
+\endfirsthead
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Usual STARFiSh unit} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\(z\) & Position along a vessel & metre, m \\
+\(t\) & Time & second, s \\
+\(P\) & Pressure & pascal, Pa \\
+\(Q\) & Volumetric flow & cubic metre per second, m\textsuperscript{3}/s \\
+\(A\) & Vessel cross-sectional area & square metre, m\textsuperscript{2} \\
+\(r\) & Vessel radius & metre \\
+\(v\) & Mean fluid velocity & metre per second \\
+\(\rho\) & Fluid density & kilogram per cubic metre \\
+\(\mu\) & Dynamic viscosity, resistance to shear & Pa s \\
+\(c\) & Pressure-wave speed & metre per second \\
+\(g_\parallel\) & Gravity acceleration projected along a vessel & m/s\textsuperscript{2} \\
+\end{longtable}
+\endgroup
+A symbol is a name for a number, or for many numbers indexed by space and time. In code, \(\rho\) is usually \texttt{rho}, \(\mu\) is \texttt{my}, and \(z\) is \texttt{z}.
+
+\subsection{2.2 Flow is not velocity}
+The relationship is
+
+
+\begingroup\small
+\[
+v=\frac{Q}{A},\qquad Q=Av.
+\]
+\endgroup
+
+
+A flow of \(10^{-5}\) m\textsuperscript{3}/s through an area of \(10^{-4}\) m\textsuperscript{2} gives a mean velocity of \(0.1\) m/s.
+
+If the same amount of fluid per second passes through half the area, the mean velocity doubles. This matters at constrictions and when calculating kinetic pressure.
+
+\subsection{2.3 Unit conversions}
+STARFiSh commonly uses these conversion factors:
+
+
+\begingroup\small
+\[
+1\ {\rm mL}=10^{-6}\ {\rm m}^3,
+\qquad
+1\ {\rm mmHg}\approx133.32\ {\rm Pa}.
+\]
+\endgroup
+
+
+For example,
+
+
+\begingroup\small
+\[
+80\ {\rm mmHg}\approx10665.6\ {\rm Pa},
+\qquad
+100\ {\rm mL/s}=10^{-4}\ {\rm m}^3/{\rm s}.
+\]
+\endgroup
+
+
+Use the exact conversion convention selected by the application when comparing results. Changing 133.32 to a more precise constant can change the last digits of a reference comparison.
+
+A number such as \texttt{80.\allowbreak{}0} has no unit attached to it in an ordinary NumPy or JAX array. Code must interpret and convert it correctly.
+
+\subsection{2.4 Several symbols have more than one meaning}
+The two most important ambiguities are compliance and matrix names.
+
+Vessel area compliance is
+
+
+\begingroup\small
+\[
+C_A=\frac{dA}{dP}.
+\]
+\endgroup
+
+
+Its units are m\textsuperscript{2}/Pa.
+
+Lumped volume compliance is
+
+
+\begingroup\small
+\[
+C_V=\frac{dV}{dP}.
+\]
+\endgroup
+
+
+Its units are m\textsuperscript{3}/Pa. The code often calls both quantities \texttt{C}; they cannot be substituted for each other.
+
+The characteristic transformation matrices are called \texttt{R} and \texttt{L}. A circuit resistance is also often called \(R\), and a circuit inertance \(L\). This guide writes the characteristic matrices as \(\mathsf R\) and \(\mathsf L\) when confusion is possible.
+
+A general circuit matrix is written \(\mathcal M\), so it is not confused with vessel area \(A\).
+
+\subsection{2.5 Dimensional checking}
+A valid physical equation adds quantities with the same units.
+
+For example, resistance satisfies
+
+
+\begingroup\small
+\[
+\Delta P=R_{\rm res}Q.
+\]
+\endgroup
+
+
+Therefore resistance has units Pa s/m\textsuperscript{3}. Multiplying it by m\textsuperscript{3}/s gives Pa.
+
+Dimensional checking does not prove an algorithm is correct. It can expose a wrong coefficient, a missing conversion, or a formula that has been transcribed incorrectly.
+
+\clearpage
+\section{3. The small amount of mathematics needed to read the solver}
+\subsection{3.1 Functions}
+A function is a rule that turns inputs into outputs. If area depends on pressure, write
+
+
+\begingroup\small
+\[
+A=f(P).
+\]
+\endgroup
+
+
+In Python, the same idea is \texttt{area = area\_\allowbreak{}from\_\allowbreak{}pressure(pressure, parameters)}.
+
+A function can return more than one value. A simulation step can return the next state and information about whether the calculation succeeded.
+
+\subsection{3.2 Differences and derivatives}
+A difference compares two values:
+
+
+\begingroup\small
+\[
+\Delta P=P_{\rm new}-P_{\rm old}.
+\]
+\endgroup
+
+
+A derivative measures how rapidly a quantity changes. The time derivative of pressure is approximately
+
+
+\begingroup\small
+\[
+\frac{dP}{dt}\approx\frac{P(t+\Delta t)-P(t)}{\Delta t}
+\]
+\endgroup
+
+
+when the time interval \(\Delta t\) is small.
+
+A spatial derivative compares nearby positions:
+
+
+\begingroup\small
+\[
+\frac{\partial P}{\partial z}
+\approx\frac{P(z+\Delta z,t)-P(z,t)}{\Delta z}.
+\]
+\endgroup
+
+
+The symbol \(\partial\) is used when a quantity depends on more than one variable. Pressure depends on both position and time; \(\partial P/\partial t\) changes time while holding position fixed.
+
+\subsection{3.3 Integrals}
+An integral adds many small contributions. The volume in a vessel is
+
+
+\begingroup\small
+\[
+V=\int_0^\ell A(z)\,dz.
+\]
+\endgroup
+
+
+Here \(\ell\) is vessel length. A constant area gives \(V=A\ell\). A changing area needs a numerical approximation to the integral.
+
+Similarly,
+
+
+\begingroup\small
+\[
+V(t+\Delta t)-V(t)
+=\int_t^{t+\Delta t}(Q_{\rm in}-Q_{\rm out})\,d\tau.
+\]
+\endgroup
+
+
+This says that stored volume grows by the amount entering minus the amount leaving.
+
+\subsection{3.4 Vectors and matrices}
+A vector is an ordered list of numbers. For example,
+
+
+\begingroup\small
+\[
+u=\begin{bmatrix}P\\Q\end{bmatrix}.
+\]
+\endgroup
+
+
+A matrix is a rectangular arrangement of numbers. Multiplying a two-by-two matrix by this vector gives
+
+
+\begingroup\small
+\[
+\begin{bmatrix}a&b\\c&d\end{bmatrix}
+\begin{bmatrix}P\\Q\end{bmatrix}
+=
+\begin{bmatrix}aP+bQ\\cP+dQ\end{bmatrix}.
+\]
+\endgroup
+
+
+The positions of the entries matter. Swapping two flow entries without changing the matrix columns changes the problem being solved.
+
+\subsection{3.5 Solving a linear system}
+The equation
+
+
+\begingroup\small
+\[
+\mathcal Mx=b
+\]
+\endgroup
+
+
+represents several simultaneous equations. The matrix \(\mathcal M\) contains their coefficients, \(x\) contains the unknown values, and \(b\) contains known forcing and history.
+
+For example,
+
+
+\begingroup\small
+\[
+\begin{aligned}
+p_1-p_2&=8,\\
+p_2&=3
+\end{aligned}
+\]
+\endgroup
+
+
+has \(p_2=3\) and \(p_1=11\).
+
+NumPy uses \texttt{np.\allowbreak{}linalg.\allowbreak{}solve(M, b)}; JAX uses \texttt{jnp.\allowbreak{}linalg.\allowbreak{}solve(M, b)}. A matrix can fail to have a unique solution, for example if a circuit has no pressure reference.
+
+\subsection{3.6 Nonlinear equations and roots}
+An equation is nonlinear when the unknown appears in expressions such as a square, a logarithm, or a pressure-dependent area.
+
+Write the equation as
+
+
+\begingroup\small
+\[
+F(x)=0.
+\]
+\endgroup
+
+
+The function \(F\) is the residual: it reports how far the trial value \(x\) is from satisfying the equation.
+
+For \(F(x)=x^2-4\), \(F(3)=5\), while \(F(2)=0\). A root finder repeatedly chooses new trial values.
+
+A root finder can converge to the wrong root or fail to converge. Its initial guess, stopping criterion, and failure behavior are part of the implementation.
+
+\subsection{3.7 Jacobians}
+For several residual equations, the Jacobian contains how each residual changes when each unknown changes:
+
+
+\begingroup\small
+\[
+J_{ij}=\frac{\partial F_i}{\partial x_j}.
+\]
+\endgroup
+
+
+Newton's method approximately solves
+
+
+\begingroup\small
+\[
+J(x_k)\Delta x=-F(x_k),\qquad
+x_{k+1}=x_k+\Delta x.
+\]
+\endgroup
+
+
+The subscript \(k\) counts nonlinear iterations within one physical time step. It is different from the simulation time-step index \(n\).
+
+\clearpage
+\section{4. Arrays and the existing Python program}
+\subsection{4.1 What NumPy adds to Python}
+An array stores many numbers with one shape and numerical type. An array of five pressure values might be:
+
+
+\begin{lstlisting}
+pressure = np.array([10000., 10020., 10010., 9990., 9980.])
+\end{lstlisting}
+Its shape is \texttt{(5,)}. A time history with 100 saved times and five positions has shape \texttt{(100, 5)}.
+
+The expression \texttt{pressure + 10} adds 10 to every entry. The expression \texttt{flow /\allowbreak{} area} computes velocity entry by entry.
+
+\subsection{4.2 Indices and slices}
+Python starts counting at zero. For five values, the positions are 0, 1, 2, 3, and 4.
+
+
+\begin{itemize}
+\item \texttt{P[0]}: first value.
+
+
+\item \texttt{P[-1]}: last value.
+
+
+\item \texttt{P[1:-1]}: all interior values, excluding both endpoints.
+
+
+\item \texttt{P[1:] - P[:-1]}: differences between neighboring values.
+
+
+\item \texttt{Psol[n, i]}: pressure at time-buffer row \(n\), spatial point \(i\).
+
+
+\end{itemize}
+If a vessel has \(N\) nodes, adjacent differences have \(N-1\) entries. Interior node updates usually have \(N-2\) entries.
+
+\subsection{4.3 Shape and broadcasting}
+Broadcasting allows an array operation to use a scalar or certain smaller arrays across larger arrays.
+
+A scalar has shape \texttt{()}. A one-element vector has shape \texttt{(1,)}. They contain the same number of values but behave differently in shape checks and indexing.
+
+Current characteristic routines sometimes return \texttt{domega[0]} because a gravity value has kept the intermediate result as a one-element array. A port that changes this to a scalar must update the surrounding shape contract.
+
+An especially dangerous mistake is multiplying shape \texttt{(N,)} by shape \texttt{(N, 1)}: broadcasting can produce an \texttt{(N, N)} array instead of \(N\) values.
+
+\subsection{4.4 Objects and shared references}
+A Python object bundles named values and methods. A vessel object contains geometry, material parameters, and solution arrays.
+
+The current field constructor does this:
+
+
+\begin{lstlisting}
+self.P = vessel.Psol
+self.Q = vessel.Qsol
+self.A = vessel.Asol
+\end{lstlisting}
+These assignments do not make three new copies. The field and vessel refer to the same arrays. Connections, boundaries, and the memory manager keep other references to them.
+
+A later assignment such as \texttt{self.\allowbreak{}P[n+1, i] = value} changes the shared array. The other objects see the update.
+
+This behavior is central to the current architecture, not an incidental coding detail.
+
+Source: \href{/home/sadid/starfish/SolverLib/classFields.py}{field constructor}.
+
+\subsection{4.5 The current run sequence}
+The high-level path is:
+
+
+\begin{lstlisting}
+read XML and create network objects
+    -> initialize geometry, wall laws, initial values
+    -> choose a time step
+    -> allocate solution buffers and output datasets
+    -> construct field, boundary, and connection objects
+    -> build an ordered list of numerical operations
+    -> repeat that list at each time step
+    -> record output and roll buffers as needed
+\end{lstlisting}
+The main time loop is \texttt{FlowSolver.\allowbreak{}MacCormack\_\allowbreak{}Field}. The list contains spatial field updates, endpoints, junctions, optional communicators, venous feedback, global network updates, and memory-management operations.
+
+Some calculations explicitly depend on being called last. Preserving the mathematical formulas while changing the operation order can still change the simulation.
+
+Source: \href{/home/sadid/starfish/SolverLib/class1DflowSolver.py}{solver and operation schedule}.
+
+\clearpage
+\section{5. Space, time, and initial conditions}
+\subsection{5.1 Building the vessel grid}
+A uniform spatial grid has
+
+
+\begingroup\small
+\[
+z_i=i\Delta z,\qquad
+\Delta z=\frac{\ell}{N-1},\qquad i=0,\ldots,N-1.
+\]
+\endgroup
+
+
+A 0.2 m vessel with five nodes has \(\Delta z=0.05\) m.
+
+The source constructs \texttt{z} with \texttt{np.\allowbreak{}linspace(0, length, N)} and \texttt{dz} with \texttt{np.\allowbreak{}diff(z)}.
+
+\subsection{5.2 Geometry functions}
+For a uniform radius \(r_a\),
+
+
+\begingroup\small
+\[
+A_0(z)=\pi r_a^2.
+\]
+\endgroup
+
+
+For the cone geometry, radius varies linearly:
+
+
+\begingroup\small
+\[
+r(z)=r_a+(r_b-r_a)\frac z\ell,
+\qquad A_0(z)=\pi r(z)^2.
+\]
+\endgroup
+
+
+For the constriction geometry, the implemented radius is
+
+
+\begingroup\small
+\[
+r(z)=r_a+(r_b-r_a)
+\frac{1+\cos(\pi(2z/\ell-1))}{2}.
+\]
+\endgroup
+
+
+It equals \(r_a\) at the ends and \(r_b\) at the center. The source warns that this geometry was not verified and validated. Another geometry helper, \texttt{mtStig2016}, exits before performing its proposed calculation.
+
+Porting should distinguish working geometry formulas from present but unsupported paths.
+
+Source: \href{/home/sadid/starfish/NetworkLib/moduleGrids.py}{grid functions}.
+
+\subsection{5.3 Initial conditions versus boundary conditions}
+An initial condition describes the whole network at the starting time. A boundary condition describes what is imposed at an endpoint during the run.
+
+Examples:
+
+
+\begin{itemize}
+\item Initial pressure everywhere: 100 mmHg.
+
+
+\item Inlet boundary: flow varies periodically with time.
+
+
+\item Outlet boundary: pressure depends on a downstream circuit.
+
+
+\end{itemize}
+A correct inlet condition does not determine the pressure at every interior node at the starting time; initialization still matters.
+
+STARFiSh supports several initialization approaches, including constant pressure and steady resistance-network calculations.
+
+\subsection{5.4 A steady resistance network}
+For steady flow through a vessel,
+
+
+\begingroup\small
+\[
+P_{\rm start}-P_{\rm end}=R_v Q.
+\]
+\endgroup
+
+
+At a branch,
+
+
+\begingroup\small
+\[
+Q_{\rm mother}=Q_{\rm daughter1}+Q_{\rm daughter2}.
+\]
+\endgroup
+
+
+These equations can be assembled into one linear system for initial pressures and flows. Terminal loads add downstream resistance.
+
+The implementation contains conversions between SI units and pressure/flow scales used inside its initialization matrix. A JAX rewrite must preserve or explicitly replace those conversions consistently.
+
+A global node label, a vessel ID, and a matrix column index are different concepts. The current initialization code includes arithmetic based on vessel IDs; a new explicit lookup table is easier to audit for nonconsecutive IDs.
+
+Source: \texttt{calculateInitialValuesLinearSystem} in \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{network implementation}.
+
+\subsection{5.5 The time step and CFL idea}
+An explicit method must not let information travel too far across the grid in one step.
+
+For a wave speed \(c\), a common bound is
+
+
+\begingroup\small
+\[
+\Delta t\leq {\rm CFL}\frac{\Delta z}{c}.
+\]
+\endgroup
+
+
+CFL is a chosen fraction such as 0.5. If \(\Delta z=0.01\) m and \(c=5\) m/s, CFL = 0.5 gives \(\Delta t=0.001\) s.
+
+The current time-step initialization uses estimated wave speeds and a global minimum. It computes
+
+
+\begingroup\small
+\[
+N_t=\left\lceil\frac{T_{\rm total}}{\Delta t}\right\rceil
+\]
+\endgroup
+
+
+and may include an initialization period.
+
+The ceiling symbol means round upward to an integer.
+
+For the full characteristic system, signal speeds also include fluid velocity; a general stability study should examine \(\max|\lambda_\pm|\), introduced later. That is an audit question, not permission to change the current time-step formula during a parity port.
+
+The source calculates proposed grid corrections, but the inspected selection disables applying them. Do not turn the configuration flag into a newly active behavior accidentally.
+
+\subsection{5.6 Gravity and vessel orientation}
+Only the component of gravity along a vessel drives axial motion. If \(\hat t\) is a unit vector along the vessel and \(\mathbf g\) is the gravity vector,
+
+
+\begingroup\small
+\[
+g_\parallel=\mathbf g\cdot\hat t.
+\]
+\endgroup
+
+
+The dot means add the products of matching vector entries.
+
+A three-dimensional rotation matrix changes local vessel directions into global directions. Tilt stimuli make orientation and gravity vary with time. Hydrostatic pressure changes scale as \(\rho g\) times a vertical displacement, with sign determined by the coordinate convention.
+
+The current code precomputes position, rotation, gravity, and venous-pressure histories. Those arrays are inputs to the numerical step. If tilt parameters later become optimization variables, the path that computes these inputs must also preserve their dependence on those parameters.
+
+\clearpage
+\section{6. The physical equations inside a vessel}
+\subsection{6.1 Conservation of fluid volume}
+If more fluid enters a short segment than leaves it, the segment must expand. The one-dimensional continuity equation is
+
+
+\begingroup\small
+\[
+\frac{\partial A}{\partial t}
++\frac{\partial Q}{\partial z}=0.
+\]
+\endgroup
+
+
+If \(Q\) decreases in the forward direction, \(\partial Q/\partial z<0\), so area increases.
+
+For a pressure-dependent wall with area compliance \(C_A=dA/dP\),
+
+
+\begingroup\small
+\[
+\frac{\partial A}{\partial t}
+=C_A\frac{\partial P}{\partial t}
+\]
+\endgroup
+
+
+when the wall law has no additional explicit time dependence. Therefore,
+
+
+\begingroup\small
+\[
+\frac{\partial P}{\partial t}
++\frac1{C_A}\frac{\partial Q}{\partial z}=0.
+\]
+\endgroup
+
+
+This explains the current coefficient \texttt{m12 = 1.\allowbreak{}0 /\allowbreak{} C}.
+
+\subsection{6.2 Conservation of momentum}
+A representative cross-section-averaged momentum equation is
+
+
+\begingroup\small
+\[
+\frac{\partial Q}{\partial t}
++\frac{\partial}{\partial z}
+\left(\delta\frac{Q^2}{A}\right)
++\frac A\rho\frac{\partial P}{\partial z}
+=
+-\frac{2\pi(\gamma+2)\mu}{\rho}\frac QA
++A g_\parallel.
+\]
+\endgroup
+
+
+The terms represent:
+
+
+\begin{itemize}
+\item Change of flow over time.
+
+
+\item Transport of momentum by fluid motion.
+
+
+\item Acceleration caused by the pressure gradient.
+
+
+\item Viscous resistance to motion.
+
+
+\item Gravity.
+
+
+\end{itemize}
+The profile exponent is \(\gamma\), and the momentum correction factor is
+
+
+\begingroup\small
+\[
+\delta=\frac{\gamma+2}{\gamma+1}.
+\]
+\endgroup
+
+
+For \(\gamma=2\), \(\delta=4/3\).
+
+This is the model-level explanation. The two implemented field schemes use different numerical expressions, discussed in chapter 9.
+
+\subsection{6.3 A pressure-flow matrix form}
+For constant \(\delta\) and no additional explicit spatial wall-law dependence, expand the momentum transport derivative using \(v=Q/A\) and \(\partial A/\partial z=C_A\partial P/\partial z\). The resulting coefficient form is
+
+
+\begingroup\small
+\[
+u_t+\mathsf M u_z=b,\qquad
+u=\begin{bmatrix}P\\Q\end{bmatrix},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+\mathsf M=
+\begin{bmatrix}
+0&1/C_A\\
+A/\rho-\delta C_Av^2&2\delta v
+\end{bmatrix},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+b=
+\begin{bmatrix}
+0\\
+-2\pi(\gamma+2)(\mu/\rho)v+A g_\parallel
+\end{bmatrix}.
+\]
+\endgroup
+
+
+If reference geometry or the wall law changes explicitly with position, the derivative expansion needs corresponding care. This local derivation is not a complete proof for every nonuniform vessel model.
+
+\subsection{6.4 Wave speed}
+The wave-speed formula used by STARFiSh is
+
+
+\begingroup\small
+\[
+c=\sqrt{\frac{A}{\rho C_A}}.
+\]
+\endgroup
+
+
+A stiffer wall has smaller compliance and therefore a larger wave speed.
+
+For \(A=10^{-4}\) m\textsuperscript{2}, \(\rho=1000\) kg/m\textsuperscript{3}, and \(C_A=10^{-8}\) m\textsuperscript{2}/Pa,
+
+
+\begingroup\small
+\[
+c=\sqrt{10}=3.16227766\ {\rm m/s}.
+\]
+\endgroup
+
+
+The code uses this relationship in \texttt{Vessel.\allowbreak{}waveSpeed}. Negative area or compliance is not a meaningful input for the intended model.
+
+\subsection{6.5 The coefficients returned by the source}
+The current \texttt{System.\allowbreak{}updateSystem} returns
+
+
+\begingroup\small
+\[
+\begin{aligned}
+m_{12}&=1/C_A,\\
+m_{21}&=C_A(c^2-\delta v^2)
+      =A/\rho-\delta C_Av^2,\\
+m_{22}&=2\delta v,\\
+b_2&=-2\pi(\gamma+2)(\mu/\rho)v+A g_\parallel.
+\end{aligned}
+\]
+\endgroup
+
+
+Those formulas match the coefficient interpretation above. How the field method applies them must be checked separately.
+
+Sources: \href{/home/sadid/starfish/SolverLib/classSystemEquations.py}{system coefficients}, \href{/home/sadid/starfish/NetworkLib/classVessel.py}{wave speed}.
+
+\clearpage
+\section{7. All implemented wall-law families}
+A wall law supplies area and area compliance for a given pressure. The port needs both the full-vessel version and the single-node version.
+
+Define transmural pressure
+
+
+\begingroup\small
+\[
+p=P-P_{\rm ext},
+\]
+\endgroup
+
+
+where \(P_{\rm ext}\) is pressure outside the vessel. In the formulas below, \(A_s\) and \(P_s\) are the code's reference parameters. Parameter values may vary across nodes.
+
+\subsection{7.1 Exponential family}
+The implemented formula is
+
+
+\begingroup\small
+\[
+A=A_s\left(1+\frac{\log(p/P_s)}{\beta_E}\right),
+\qquad
+C_A=\frac{A_s}{\beta_Ep}.
+\]
+\endgroup
+
+
+The logarithm requires \(p/P_s>0\).
+
+For a derivative check, differentiating \(\log p\) gives \(1/p\), which produces the displayed compliance.
+
+\subsection{7.2 Laplace family}
+The implemented pressure-area relationship is
+
+
+\begingroup\small
+\[
+A=\left(\frac{p-P_s}{\beta_L}+\sqrt{A_s}\right)^2.
+\]
+\endgroup
+
+
+Write the bracket as \(s(P)\). Since \(A=s^2\),
+
+
+\begingroup\small
+\[
+C_A=2s\frac{ds}{dP}
+=\frac{2}{\beta_L}
+\left(\frac{p-P_s}{\beta_L}+\sqrt{A_s}\right).
+\]
+\endgroup
+
+
+This is the source's formula. At \(p=P_s\), the area equals \(A_s\).
+
+A worked example in consistent SI units uses
+
+
+\begingroup\small
+\[
+A_s=10^{-4},\quad
+P_s=10000,\quad
+P_{\rm ext}=0,\quad
+\beta_L=10^6,\quad
+P=11000.
+\]
+\endgroup
+
+
+Then the bracket is \(0.011\) m, area is \(1.21\times10^{-4}\) m\textsuperscript{2}, and compliance is \(2.2\times10^{-8}\) m\textsuperscript{2}/Pa.
+
+The coefficient \(\beta_L\) carries the units required by this formula. Do not assume every parameter named beta is dimensionless.
+
+\subsection{7.3 Laplace2}
+Laplace2 uses the same area and compliance formulas, but initializes stiffness from wall thickness \(h\) and Young's modulus \(E_Y\):
+
+
+\begingroup\small
+\[
+\beta_L=\frac43
+\frac{\sqrt{\pi}\,h E_Y}{A_s}.
+\]
+\endgroup
+
+
+Young's modulus measures material stiffness. It is different from the chamber elastance \(E(t)\) introduced later.
+
+\subsection{7.4 Hayashi}
+The implemented law is
+
+
+\begingroup\small
+\[
+A=A_s\left(1+\frac{\log(p/P_s)}{\beta_H}\right)^2,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+C_A=
+\frac{2A_s}{\beta_Hp}
+\left(1+\frac{\log(p/P_s)}{\beta_H}\right).
+\]
+\endgroup
+
+
+The square makes this different from the exponential family's area formula. Again, the logarithm needs a positive argument.
+
+\subsection{7.5 HayashiEmpirical}
+The area and compliance formulas have the Hayashi form. The initialization attempts to estimate \(\beta_H\) using an empirical area-wave-speed relationship.
+
+The inspected method refers to \texttt{Amm} without defining it in that method. This is a source-level defect to resolve before declaring that initialization path supported. A port must not quietly invent its missing definition and call the result equivalent.
+
+The related empirical formulas elsewhere use area converted to mm\textsuperscript{2} and expressions of the form
+
+
+\begingroup\small
+\[
+c_{\rm emp}
+=\frac{13.3}{\left(\sqrt{4A_{\rm mm^2}/\pi}\right)^{0.3}}.
+\]
+\endgroup
+
+
+These are unit-dependent fitted formulas, not dimensionless identities. Their original unit convention must remain explicit.
+
+\subsection{7.6 Reymond}
+Define
+
+
+\begingroup\small
+\[
+x=\frac{p-P_{\max}}{P_{\rm width}},
+\]
+\endgroup
+
+
+with source constants \(a_1=0.4\), \(b_1=5\), and configured pressure scales. The compliance is
+
+
+\begingroup\small
+\[
+C_A=C_s\left(a_1+\frac{b_1}{1+x^2}\right).
+\]
+\endgroup
+
+
+The corresponding area is
+
+
+\begingroup\small
+\[
+A=C_s\left(a_1p+
+b_1P_{\rm width}\arctan x\right)+K,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+K=A_s-C_s\left(
+a_1P_s+
+b_1P_{\rm width}
+\arctan\frac{P_s-P_{\max}}{P_{\rm width}}
+\right).
+\]
+\endgroup
+
+
+The constant \(K\) makes the reference area match the selected reference pressure under this convention.
+
+\subsection{7.7 Constant compliance and rigid area are different options}
+The constant-compliance option returns a precomputed compliance vector, \texttt{C0preCalculated}, instead of reevaluating the variable compliance formula.
+
+The rigid-area option prevents selected time-step operations from updating area.
+
+They are different switches. Freezing one quantity does not automatically freeze every pressure-dependent value elsewhere. The JAX parameter contract should preserve their separate meanings.
+
+\subsection{7.8 What changes in JAX?}
+The formulas remain the same. Parameters and pressure arrays become explicit inputs.
+
+
+\begin{lstlisting}
+# Proposed numerical function, not an installed STARFiSh API.
+def laplace_area(pressure, area_ref, pressure_ref,
+                 beta, external_pressure):
+    p = pressure - external_pressure
+    return ((p - pressure_ref) / beta
+            + jnp.sqrt(area_ref)) ** 2
+\end{lstlisting}
+Material adaptation should return new parameter arrays rather than mutate a wall object. Exact Python-type checks such as \texttt{type(alpha\_\allowbreak{}c) in [float, int, np.\allowbreak{}float64]} must not reject valid JAX scalar inputs inside transformed calculations.
+
+Keep the existing compliance formula for initial parity. Compare it with the derivative of the area formula as a separate mathematical check.
+
+Source for this chapter: \href{/home/sadid/starfish/NetworkLib/classCompliance.py}{wall laws}.
+
+\clearpage
+\section{8. Resistance, volume, and other integral calculations}
+\subsection{8.1 Viscous vessel resistance}
+A steady vessel resistance relates pressure drop to flow:
+
+
+\begingroup\small
+\[
+P_{\rm start}-P_{\rm end}=R_vQ.
+\]
+\endgroup
+
+
+For the profile convention in the source,
+
+
+\begingroup\small
+\[
+R_v=2(\gamma+2)\pi\mu
+\int_0^\ell\frac{1}{A(z)^2}\,dz.
+\]
+\endgroup
+
+
+For a constant circular radius,
+
+
+\begingroup\small
+\[
+R_v=\frac{2(\gamma+2)\mu\ell}{\pi r^4}.
+\]
+\endgroup
+
+
+At \(\gamma=2\), this becomes the familiar expression \(8\mu\ell/(\pi r^4)\). A small radius change has a large effect because radius appears to the fourth power.
+
+\subsection{8.2 What the tapered-resistance implementation actually integrates}
+\texttt{Vessel.\allowbreak{}calcResistance} creates 101 points by default. It linearly interpolates \textbf{area} between the proximal and distal areas, computes \(1/A^2\), and integrates with SciPy's Simpson routine.
+
+The cone grid, by contrast, linearly interpolates \textbf{radius}. Linear radius gives quadratic area. These are different spatial profiles.
+
+A port that substitutes the analytic resistance of a radius-linear cone would therefore change the current resistance calculation. Preserve the sampled calculation first; evaluate any physical correction separately.
+
+\subsection{8.3 Simpson integration}
+For an odd number of equally spaced samples \(f_0,\ldots,f_{2m}\), spacing \(h\), composite Simpson integration is
+
+
+\begingroup\small
+\[
+\int f(z)\,dz\approx
+\frac h3\left(
+f_0+f_{2m}
++4\sum_{\text{odd }j} f_j
++2\sum_{\substack{\text{even }j\\0<j<2m}} f_j
+\right).
+\]
+\endgroup
+
+
+It approximates the curve using quadratic pieces. For the default 101-point resistance calculation, the basic odd-sample formula is sufficient.
+
+The function accepts a different integration count. A feature-complete replacement must decide how to handle small counts, even counts, and any nonuniform coordinates rather than assuming every caller uses 101.
+
+SciPy can remain in setup initially. A small dedicated JAX quadrature function is useful when resistance must depend differentiably on geometry.
+
+\subsection{8.4 Volume of a vessel segment}
+If radius varies linearly over a segment of length \(h\), its volume is
+
+
+\begingroup\small
+\[
+V_{\rm segment}
+=\frac h3\left(A_i+\sqrt{A_iA_{i+1}}+A_{i+1}\right).
+\]
+\endgroup
+
+
+The square-root term comes from the product of the two endpoint radii. The network code sums this expression over adjacent nodes and vessels.
+
+This is different from the trapezoidal area formula \(h(A_i+A_{i+1})/2\). Replacing one with the other changes reported volume.
+
+The inspected global-volume function also adds venous volume inside its vessel loop. That appears to add the same venous compartment once per vessel. It needs a separate baseline decision before using that output as a mass-balance oracle.
+
+Sources: \href{/home/sadid/starfish/NetworkLib/classVessel.py}{vessel resistance}, \texttt{calculateNetworkVolume} in \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{network calculations}.
+
+\clearpage
+\section{9. The MacCormack field methods, step by step}
+\subsection{9.1 Why a numerical method is needed}
+The continuous equations describe values at every location and every time. A computer stores a finite number of values.
+
+A numerical method replaces derivatives by neighboring differences and advances by a finite time interval. This approximation is called a discretization.
+
+MacCormack uses two stages:
+
+
+\begin{enumerate}
+\item A predictor produces a trial future state.
+
+
+\item A corrector combines the original state with information from the predictor.
+
+
+\end{enumerate}
+For smooth solutions under suitable assumptions, this structure can provide second-order accuracy. Boundaries, sources, and coupling can lower the order of the complete simulation.
+
+\subsection{9.2 A scalar teaching example}
+Consider a simpler transport equation,
+
+
+\begingroup\small
+\[
+u_t+a u_z=0,
+\]
+\endgroup
+
+
+where \(a\) is a constant speed. The value \(u\) moves along the grid.
+
+The predictor is
+
+
+\begingroup\small
+\[
+u_i^*=u_i^n
+-\nu(u_{i+1}^n-u_i^n),
+\qquad \nu=\frac{a\Delta t}{\Delta z}.
+\]
+\endgroup
+
+
+The corrector is
+
+
+\begingroup\small
+\[
+u_i^{n+1}
+=\frac12\left(
+u_i^n+u_i^*
+-\nu(u_i^*-u_{i-1}^*)
+\right).
+\]
+\endgroup
+
+
+The superscript \(n\) means the old time; the star means the predictor.
+
+For old values \((1,2,4,7)\) and \(\nu=0.25\), the predictor values for the first three positions are \(0.75,1.5,3.25\). Keeping the last predictor boundary value at 7, the corrected values at the two interior positions are 1.65625 and 3.40625.
+
+This is a teaching example of the two-stage structure. It is not a blood-flow reference test.
+
+\subsection{9.3 The current flux function}
+The default field option is \texttt{MacCormack\_\allowbreak{}Flux}. Its helper \texttt{F} returns, for \(u=(P,Q)\),
+
+
+\begingroup\small
+\[
+F(u;A,A_f,C_f)=
+\begin{bmatrix}
+Q/C_f\\
+A_fP/\rho+\alpha_F Q^2/A
+\end{bmatrix}.
+\]
+\endgroup
+
+
+Here \(A_f,C_f\) are frozen values selected for a finite-difference pair.
+
+\textbf{Current implementation:} the helper sets \(\alpha_F=1\). The surrounding method calculates \((\gamma+2)/(\gamma+1)\), but that local value is not used by \texttt{F}.
+
+Consequently, replacing \(\alpha_F\) with \(\delta=(\gamma+2)/(\gamma+1)\) would change the current flux method. A physically motivated change must not be hidden inside the JAX port.
+
+\subsection{9.4 Exact predictor structure in the flux path}
+For each left point \(i=0,\ldots,N-2\), define a face difference using the same frozen \(A_i^n,C_i^n\) in both flux evaluations:
+
+
+\begingroup\small
+\[
+u_i^*=u_i^n
+-\frac{\Delta t}{\Delta z}
+\left[
+F(u_{i+1}^n;A_{i+1}^n,A_i^n,C_i^n)
+-
+F(u_i^n;A_i^n,A_i^n,C_i^n)
+\right].
+\]
+\endgroup
+
+
+The flow component then receives
+
+
+\begingroup\small
+\[
+\Delta t\left[
+-\frac{2\pi(\gamma+2)\mu}{\rho}\frac{Q_i^n}{A_i^n}
++A_i^n g_\parallel^n
+\right].
+\]
+\endgroup
+
+
+If area is not rigid, the code evaluates the wall law and compliance at the predicted pressure to obtain \(A^*,C^*\).
+
+The source uses \texttt{dx = self.\allowbreak{}dz[0]}, so this implementation assumes equally spaced grid intervals.
+
+\subsection{9.5 Exact corrector structure in the flux path}
+The backward difference uses the predicted right-point area and compliance as the frozen coefficients:
+
+
+\begingroup\small
+\[
+u_i^{n+1}
+=\frac12\left[
+u_i^n+u_i^*
+-\frac{\Delta t}{\Delta z}
+\left(
+F(u_i^*;A_i^*,A_i^*,C_i^*)
+-F(u_{i-1}^*;A_{i-1}^*,A_i^*,C_i^*)
+\right)
+\right].
+\]
+\endgroup
+
+
+The flow receives half a time step of the corresponding predicted friction and gravity term.
+
+Only the interior entries are written to the vessel solution. Endpoints are handled by boundary and connection objects.
+
+This frozen-coefficient implementation should be ported literally before trying to replace it with a different conservative flux or a new finite-volume scheme.
+
+\subsection{9.6 The matrix path and a discrepancy that matters}
+The alternative \texttt{MacCormack\_\allowbreak{}Matrix} method uses the coefficients from chapter 6.
+
+Its pressure predictor has the expected form
+
+
+\begingroup\small
+\[
+P_i^*=P_i^n
+-\Delta t\,m_{12,i}^n
+\frac{Q_{i+1}^n-Q_i^n}{\Delta z_i}.
+\]
+\endgroup
+
+
+The flow predictor in the inspected code is
+
+
+\begingroup\small
+\[
+Q_i^*=Q_i^n-\Delta t\left[
+m_{21,i}^n D^+P_i^n
++m_{22,i}^n D^+\left(\frac{(Q_i^n)^2}{A_i^n}\right)
+-b_{2,i}^n
+\right],
+\]
+\endgroup
+
+
+where \(D^+f_i=(f_{i+1}-f_i)/\Delta z_i\).
+
+The standard local matrix interpretation in chapter 6 instead applies \(m_{22}=2\delta v\) to \(D^+Q\), not to \(D^+(Q^2/A)\).
+
+This distinction is visible in the source variable \texttt{dQ2dz}. A dimensional check also raises a concern: \(m_{22}D_z(Q^2/A)\) does not have the units of a flow time derivative under the stated SI meanings.
+
+The corrector repeats the implemented structure with predicted coefficients and backward differences, then averages with the old state.
+
+This is a \textbf{source-level equation discrepancy}, not a runtime validation result. The port needs an explicit decision: preserve the current matrix algorithm for comparison, repair it under a separate approved model change, or exclude the path until its intended formula is established.
+
+\subsection{9.7 What changes in JAX?}
+The predictor and corrector can be pure array functions. They need explicit inputs for old pressure, flow, area, geometry, wall parameters, gravity, and time step.
+
+Instead of writing into another object's history array, the field function can return three interior arrays. The driver then combines interior and endpoint results into the next vessel state.
+
+Prefer direct construction and slicing to many scalar updates:
+
+
+\begin{lstlisting}
+# Proposed assembly pattern.
+next_pressure = jnp.concatenate((
+    left_pressure[None],
+    interior_pressure,
+    right_pressure[None],
+))
+\end{lstlisting}
+This example assumes endpoint pressures are scalar JAX arrays. A different shape contract needs a corresponding implementation.
+
+Source for this chapter: \href{/home/sadid/starfish/SolverLib/classFields.py}{field schemes}.
+
+\clearpage
+\section{10. Characteristics: how an endpoint knows what the interior is doing}
+\subsection{10.1 Information travels in two directions}
+A subcritical flexible-vessel model normally has one wave traveling in the positive vessel direction and one in the negative direction.
+
+At a distal endpoint, the interior tells us about the forward-going wave. The boundary must determine the incoming backward-going wave.
+
+At a proximal endpoint, the roles reverse.
+
+Imposing both arbitrary pressure and arbitrary flow would generally overconstrain such a boundary. The characteristic formulation supplies the missing relationship.
+
+\subsection{10.2 Characteristic speeds}
+The simplified model uses
+
+
+\begingroup\small
+\[
+\lambda_+=c,\qquad \lambda_-=-c.
+\]
+\endgroup
+
+
+The full model uses
+
+
+\begingroup\small
+\[
+\lambda_\pm
+=\delta v\pm
+\sqrt{c^2+\delta(\delta-1)v^2}.
+\]
+\endgroup
+
+
+These are eigenvalues of the local system matrix. An eigenvalue is a speed at which a particular combination of pressure and flow propagates.
+
+The code chooses simplified or full speeds and chooses pressure-based or flow-based characteristic coordinates. These choices create four implementation variants.
+
+\subsection{10.3 Impedance}
+For the full model, define
+
+
+\begingroup\small
+\[
+Z_+=\frac1{C_A\lambda_+},
+\qquad
+Z_-=-\frac1{C_A\lambda_-}.
+\]
+\endgroup
+
+
+For the simplified model, both reduce to
+
+
+\begingroup\small
+\[
+Z_c=\frac1{C_Ac}=\frac{\rho c}{A}.
+\]
+\endgroup
+
+
+Impedance has units Pa s/m\textsuperscript{3}. It describes the pressure change associated with a traveling flow disturbance.
+
+\subsection{10.4 Changing coordinates}
+Let the characteristic increments be
+
+
+\begingroup\small
+\[
+\omega=
+\begin{bmatrix}\omega_+\\\omega_-\end{bmatrix}.
+\]
+\endgroup
+
+
+The pressure and flow increments are
+
+
+\begingroup\small
+\[
+\begin{bmatrix}\Delta P\\\Delta Q\end{bmatrix}
+=\mathsf R\omega,
+\qquad
+\omega=\mathsf L
+\begin{bmatrix}\Delta P\\\Delta Q\end{bmatrix}.
+\]
+\endgroup
+
+
+Ideally \(\mathsf L\mathsf R=I\), where \(I\) is the identity matrix.
+
+These increments are numerical local wave coordinates. They are not an additional physical volume compartment.
+
+\subsection{10.5 Pressure-based coordinates}
+With \(S=Z_++Z_-\), the full pressure-coordinate matrices are
+
+
+\begingroup\small
+\[
+\mathsf R_P=
+\begin{bmatrix}
+Z_+/S&Z_-/S\\
+1/S&-1/S
+\end{bmatrix},
+\qquad
+\mathsf L_P=
+\begin{bmatrix}
+1&Z_-\\
+1&-Z_+
+\end{bmatrix}.
+\]
+\endgroup
+
+
+For the simplified case,
+
+
+\begingroup\small
+\[
+\mathsf R_P=
+\begin{bmatrix}
+1/2&1/2\\
+1/(2Z_c)&-1/(2Z_c)
+\end{bmatrix}.
+\]
+\endgroup
+
+
+Both entries of \(\omega\) then carry pressure units.
+
+\subsection{10.6 Flow-based coordinates}
+The full flow-coordinate matrices are
+
+
+\begingroup\small
+\[
+\mathsf R_Q=
+\begin{bmatrix}
+Z_+&Z_-\\
+1&-1
+\end{bmatrix},
+\qquad
+\mathsf L_Q=
+\begin{bmatrix}
+1/S&Z_-/S\\
+1/S&-Z_+/S
+\end{bmatrix}.
+\]
+\endgroup
+
+
+For equal impedances, the first column of \(\mathsf L_Q\) is \(1/(2Z_c)\), while its second column is \(1/2,-1/2\).
+
+The characteristic values now have flow units. A tolerance for \(\omega\) must respect the selected coordinate system.
+
+\subsection{10.7 Following a wave backward}
+To estimate the known characteristic increment at a boundary, trace the outgoing wave backward by one step:
+
+
+\begingroup\small
+\[
+z_{\rm foot}=z_{\rm boundary}-\lambda_{\rm outgoing}\Delta t.
+\]
+\endgroup
+
+
+The code interpolates old pressure and flow at that position:
+
+
+\begingroup\small
+\[
+\Delta u_{\rm foot}
+=
+\begin{bmatrix}
+P(z_{\rm foot})-P(z_{\rm boundary})\\
+Q(z_{\rm foot})-Q(z_{\rm boundary})
+\end{bmatrix}.
+\]
+\endgroup
+
+
+It multiplies the appropriate row of \(\mathsf L\) by this difference and adds its gravity contribution:
+
+
+\begingroup\small
+\[
+\omega_{\rm known}
+=\mathsf L_{\rm outgoing}\Delta u_{\rm foot}
++\Delta t\,L_{{\rm outgoing},Q}A_{\rm boundary}g_\parallel.
+\]
+\endgroup
+
+
+At the distal end it uses \(\lambda_+\); at the proximal end it uses \(\lambda_-\).
+
+\subsection{10.8 What changes in JAX?}
+Return newly calculated matrices and characteristic values instead of overwriting \texttt{self.\allowbreak{}R}, \texttt{self.\allowbreak{}L}, \texttt{self.\allowbreak{}LAMBDA}, and scratch arrays.
+
+One-dimensional interpolation has a JAX equivalent, \texttt{jnp.\allowbreak{}interp}. Preserve endpoint extrapolation behavior and shape conventions.
+
+The code's current scalar consistency expression is not a full matrix identity check. A clear comparison can also inspect every entry of \(\mathsf L\mathsf R-I\).
+
+Source: \href{/home/sadid/starfish/SolverLib/classSystemEquations.py}{all four characteristic routines}.
+
+\clearpage
+\section{11. Native inlet and outlet conditions}
+\subsection{11.1 A common algebraic pattern}
+Write the characteristic matrix as
+
+
+\begingroup\small
+\[
+\mathsf R=
+\begin{bmatrix}r_{11}&r_{12}\\r_{21}&r_{22}\end{bmatrix}.
+\]
+\endgroup
+
+
+At a distal endpoint, \(\omega_+=k\) is known and \(\omega_-=w\) is unknown:
+
+
+\begingroup\small
+\[
+P'=P+r_{11}k+r_{12}w,
+\qquad
+Q'=Q+r_{21}k+r_{22}w.
+\]
+\endgroup
+
+
+A prime denotes the proposed next endpoint value. Substitute these expressions into the boundary equation and solve for \(w\).
+
+At a proximal endpoint, \(\omega_-=k\) is known and \(\omega_+=w\) is unknown.
+
+\subsection{11.2 Prescribing total flow}
+If the desired next flow is \(Q_{\rm target}\), the distal condition gives
+
+
+\begingroup\small
+\[
+w=\frac{Q_{\rm target}-Q-r_{21}k}{r_{22}}.
+\]
+\endgroup
+
+
+A total pressure target similarly gives
+
+
+\begingroup\small
+\[
+w=\frac{P_{\rm target}-P-r_{11}k}{r_{12}}.
+\]
+\endgroup
+
+
+Use the appropriate unknown column at a proximal endpoint. A near-zero denominator signals a problematic boundary formulation.
+
+\subsection{11.3 Prescribing an increment}
+The code also supports prescribed influxes and increments. A supplied increment is not always an absolute next-step value.
+
+For a waveform \(U(t)\), the base implementation can form
+
+
+\begingroup\small
+\[
+\Delta U^n=U(t_{n+1})-U(t_n)
+\]
+\endgroup
+
+
+and combine it with outgoing and reflected characteristic contributions.
+
+The distinction between prescribed total values and prescribed increments must survive the port. A sine-shaped increment produces a different result from a sine-shaped absolute flow.
+
+\subsection{11.4 Reflection coefficient}
+A simple characteristic reflection condition has the form
+
+
+\begingroup\small
+\[
+\omega_{\rm incoming}
+=R_t\omega_{\rm outgoing}
++\omega_{\rm prescribed}.
+\]
+\endgroup
+
+
+Here \(R_t\) is a reflection coefficient. A value of zero removes the reflected contribution in this selected characteristic convention.
+
+For the simplest equal-impedance pressure-wave setting, a resistive termination has the familiar relation
+
+
+\begingroup\small
+\[
+R_t=\frac{R_{\rm load}-Z_c}{R_{\rm load}+Z_c}.
+\]
+\endgroup
+
+
+This interpretation depends on the wave normalization and the boundary orientation. Preserve the actual \(\mathsf R,\mathsf L\) conventions.
+
+\subsection{11.5 Resistance}
+The physical distal load usually has
+
+
+\begingroup\small
+\[
+P_{\rm interface}-P_v=R_{\rm load}Q_{\rm out}.
+\]
+\endgroup
+
+
+The current native \texttt{Resistance} characteristic methods enforce the incremental distal relation
+
+
+\begingroup\small
+\[
+\Delta P=R_{\rm load}\Delta Q.
+\]
+\endgroup
+
+
+They do not use old pressure and flow to explicitly restore an absolute pressure-flow balance. The absolute relationship follows only when the existing state is already consistent with it.
+
+This differs from the netlist affine interface, whose intercept carries history and pressure-reference terms explicitly.
+
+\subsection{11.6 Two-element Windkessel}
+A resistor and compliance in parallel satisfy
+
+
+\begingroup\small
+\[
+C_V\frac{dP}{dt}
+=Q_{\rm out}-\frac{P-P_v}{R_c}.
+\]
+\endgroup
+
+
+The time constant is \(R_cC_V\), in seconds.
+
+For constant \(P_v\), a centered/trapezoidal step yields
+
+
+\begingroup\small
+\[
+\left(1+\frac{2R_cC_V}{\Delta t}\right)\Delta P
+-R_c\Delta Q
+=
+2\left(R_cQ-(P-P_v)\right).
+\]
+\endgroup
+
+
+Substituting the characteristic increments gives the source's direct endpoint formula. The proximal formula uses the corresponding opposite outlet-flow orientation.
+
+The native routine uses current venous pressure in its formula. A time-varying reference pressure requires preserving the exact sampled time level used by the source.
+
+\subsection{11.7 Three-element Windkessel}
+A proximal impedance \(Z\), distal resistance \(R_c\), and compliance \(C_V\) satisfy
+
+
+\begingroup\small
+\[
+P=P_c+ZQ,
+\qquad
+C_V\frac{dP_c}{dt}
+=Q-\frac{P_c-P_v}{R_c}.
+\]
+\endgroup
+
+
+Eliminating \(P_c\) gives
+
+
+\begingroup\small
+\[
+R_cC_V\frac{dP}{dt}
+-ZR_cC_V\frac{dQ}{dt}
++P-P_v-(Z+R_c)Q=0.
+\]
+\endgroup
+
+
+The current native method defines
+
+
+\begingroup\small
+\[
+a=ZR_cC_V+\frac{\Delta t}{2}(Z+R_c),
+\qquad
+b=R_cC_V+\frac{\Delta t}{2}.
+\]
+\endgroup
+
+
+For a distal endpoint, its characteristic result is
+
+
+\begingroup\small
+\[
+w=
+\frac{
+\Delta t(P-P_v)-\Delta t(Z+R_c)Q
++(br_{11}-ar_{21})k
+}{
+ar_{22}-br_{12}
+}.
+\]
+\endgroup
+
+
+When \texttt{Z} is \texttt{VesselImpedance}, this model can capture the impedance on its first use and reuse that value. That first-run behavior is part of the boundary state.
+
+\textbf{Important distinction:} the native Windkessel discretization and the Python netlist's backward-Euler RCR discretization are different. Identical component names do not make their discrete trajectories identical.
+
+\subsection{11.8 DAE variants}
+A differential-algebraic equation combines a time derivative with an algebraic constraint.
+
+The general boundary wrapper maps a trial characteristic value into \(\Delta P,\Delta Q\) and calls a residual. For the two-element DAE, the intended backward-Euler residual is
+
+
+\begingroup\small
+\[
+F=C_V\frac{\Delta P}{\Delta t}
++\frac{P+\Delta P-P_v}{R_c}
+-(Q+\Delta Q).
+\]
+\endgroup
+
+
+The inspected Windkessel DAE call signatures are inconsistent with the general wrapper's area argument. Repair and validate those paths before using them as reference behavior.
+
+The current SciPy \texttt{newton} calls omit \texttt{fprime}, so they use a secant iteration. Preserve that fact when comparing a new root solver.
+
+For a scalar residual, the secant iteration is
+
+
+\begingroup\small
+\[
+w_{k+1}
+=w_k-F(w_k)
+\frac{w_k-w_{k-1}}{F(w_k)-F(w_{k-1})}.
+\]
+\endgroup
+
+
+It estimates a slope using two trial points instead of an analytic derivative. A small residual difference can make that slope unreliable.
+
+SciPy's selected tolerance controls the change in the root estimate; it is not simply an absolute residual tolerance. Its initial second point, maximum iterations, and nonconvergence behavior must also match the chosen library version for a strict numerical comparison.
+
+For a teaching example \(F(w)=w^2-4\), trial points 1 and 3 produce the next point \(3-5(3-1)/(5-(-3))=1.75\). Later iterations approach a root.
+
+Source: \href{/home/sadid/starfish/NetworkLib/classBoundaryConditions.py}{boundary models}. External reference: \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html}{SciPy newton}.
+
+\clearpage
+\section{12. Prescribed waveforms and interpolation}
+\subsection{12.1 Basic periodic waveforms}
+A simple periodic signal can be written
+
+
+\begingroup\small
+\[
+Q(t)=Q_0+B\sin(2\pi f(t-t_0)).
+\]
+\endgroup
+
+
+The frequency \(f\) is cycles per second, the period is \(1/f\), and \(B\) is amplitude.
+
+STARFiSh provides sinusoidal, ramp, exponential, physiological, Fourier, and sampled-file waveform families. Pulse schedules add start times, active intervals, spacing, and runtime period changes.
+
+These waveform functions can be converted to JAX arithmetic, but pulse schedule state and boundary interpretation must also be carried.
+
+\subsection{12.2 Fourier representation}
+A Fourier waveform combines harmonics:
+
+
+\begingroup\small
+\[
+Q(t)=a_0+\sum_{m=1}^{K}
+\left[a_m\cos(2\pi mf t)+b_m\sin(2\pi mf t)\right].
+\]
+\endgroup
+
+
+A harmonic is a multiple of the base frequency. Fixed harmonic count is straightforward for JAX. Changing the number of terms changes the array shape and may require compilation of another program.
+
+\subsection{12.3 File-based periodic data}
+The current \texttt{FlowFromFile} implementation loads time/value samples and evaluates a periodic time
+
+
+\begingroup\small
+\[
+t_{\rm sample}
+=t_{\rm first}
++\operatorname{mod}(t-t_{\rm pulse},T_{\rm file}).
+\]
+\endgroup
+
+
+It then interpolates the samples. Before the pulse starts, it returns the configured constant contribution.
+
+File loading belongs outside compiled calculations. The loaded samples can become explicit arrays passed to \texttt{jnp.\allowbreak{}interp}.
+
+\subsection{12.4 Linear interpolation explained}
+Given adjacent samples \((x_0,y_0)\) and \((x_1,y_1)\),
+
+
+\begingroup\small
+\[
+w=\frac{x-x_0}{x_1-x_0},
+\qquad
+y(x)=(1-w)y_0+wy_1.
+\]
+\endgroup
+
+
+For values 10 at time 0 and 14 at time 2, time 0.5 gives \(w=0.25\) and value 11.
+
+A JAX port must preserve what happens outside the sample interval and at the periodic seam.
+
+\subsection{12.5 Two-dimensional result interpolation}
+Saved pressure has a time dimension and a spatial dimension. A query at a new time and position uses interpolation in both.
+
+On a rectangular grid, bilinear interpolation combines four surrounding values:
+
+
+\begingroup\small
+\[
+f=(1-a)(1-b)f_{00}
++a(1-b)f_{10}
++(1-a)bf_{01}+abf_{11}.
+\]
+\endgroup
+
+
+The weights \(a,b\) describe relative position between the neighboring coordinates.
+
+The current \texttt{getSolutionData} uses removed SciPy \texttt{interp2d} calls. A replacement must preserve output orientation: requested times correspond to rows and requested positions to columns.
+
+Sources: \href{/home/sadid/starfish/NetworkLib/classBoundaryConditions.py}{waveform and file implementations}, \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{result accessor}. External references: \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp2d.html}{SciPy interp2d removal}, \href{https://docs.jax.dev/en/latest/_autosummary/jax.scipy.interpolate.RegularGridInterpolator.html}{JAX regular-grid interpolation}.
+
+\clearpage
+\section{13. Junctions, nonlinear iteration, and the Jacobian issue}
+\subsection{13.1 What a junction solves}
+A link connects two vessels. A bifurcation connects one incoming vessel to two outgoing vessels. An anastomosis joins two incoming vessels to one outgoing vessel.
+
+Each endpoint supplies one known characteristic. The junction determines the remaining incoming characteristic at each endpoint.
+
+\subsection{13.2 Conservation equations}
+For a link,
+
+
+\begingroup\small
+\[
+F_1=Q_1-Q_2=0.
+\]
+\endgroup
+
+
+For a bifurcation,
+
+
+\begingroup\small
+\[
+F_1=Q_1-Q_2-Q_3=0.
+\]
+\endgroup
+
+
+For an anastomosis,
+
+
+\begingroup\small
+\[
+F_1=Q_1+Q_2-Q_3=0.
+\]
+\endgroup
+
+
+The signs refer to each vessel's configured direction. A negative solved flow is possible and must not be replaced by its absolute value.
+
+\subsection{13.3 Total pressure}
+The nonlinear implementation compares
+
+
+\begingroup\small
+\[
+H_j=P_j+\frac{\rho_j}{2}
+\left(\frac{Q_j}{A_j}\right)^2.
+\]
+\endgroup
+
+
+This combines static pressure and kinetic pressure.
+
+The bifurcation residuals are
+
+
+\begingroup\small
+\[
+F_2=H_1-H_2,\qquad F_3=H_1-H_3.
+\]
+\endgroup
+
+
+For an anastomosis, the source compares \(H_1-H_3\) and \(H_2-H_3\).
+
+These equations are nonlinear because flow is squared and area depends on pressure.
+
+\subsection{13.4 Expressing everything using characteristic unknowns}
+For a mother vessel ending at the junction,
+
+
+\begingroup\small
+\[
+P_1=P_{1,0}+r_{11}^{(1)}k_1+r_{12}^{(1)}w_1,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+Q_1=Q_{1,0}+r_{21}^{(1)}k_1+r_{22}^{(1)}w_1.
+\]
+\endgroup
+
+
+For a daughter starting at the junction,
+
+
+\begingroup\small
+\[
+P_2=P_{2,0}+r_{11}^{(2)}w_2+r_{12}^{(2)}k_2,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+Q_2=Q_{2,0}+r_{21}^{(2)}w_2+r_{22}^{(2)}k_2.
+\]
+\endgroup
+
+
+Areas are evaluated from those trial pressures unless the rigid-area option is selected.
+
+Thus the unknown vector has two entries for a link and three for a bifurcation or anastomosis.
+
+\subsection{13.5 The implemented Jacobian is approximate for flexible areas}
+Consider one total-pressure term,
+
+
+\begingroup\small
+\[
+H=P+\frac{\rho Q^2}{2A(P)^2}.
+\]
+\endgroup
+
+
+Its derivative with respect to a characteristic unknown \(w\) is
+
+
+\begingroup\small
+\[
+\frac{dH}{dw}
+=
+\frac{dP}{dw}
++\frac{\rho Q}{A^2}\frac{dQ}{dw}
+-\frac{\rho Q^2C_A}{A^3}\frac{dP}{dw}.
+\]
+\endgroup
+
+
+The inspected junction Jacobian formulas include the first two terms but omit the last pressure-area derivative term.
+
+For rigid area, that omitted dependence is absent. For flexible area, the formulas act as an approximate Jacobian for the nonlinear residual.
+
+Automatic differentiation would include the full pressure-area derivative. It can improve the mathematical Jacobian, but it changes the iteration used by the current solver. Keep that improvement separate from the initial parity implementation.
+
+\subsection{13.6 Tolerances, guesses, and stopping}
+The source uses different thresholds for mass-flow and pressure residuals. A bifurcation uses approximately
+
+
+\begingroup\small
+\[
+|F_1|\leq10^{-14},
+\qquad |F_2|,|F_3|\leq10^{-3}
+\]
+\endgroup
+
+
+under its current physical units. A link uses a \(10^{-4}\) pressure residual threshold.
+
+It also uses previous pressure increments to form some initial guesses. Those guesses affect nonlinear convergence.
+
+Current loops evaluate physical values at the current candidate and then compute another candidate. The returned physical values must be associated with the same candidate as the reference implementation. Simply returning the newest candidate from a generic solver can introduce an extra iteration.
+
+Iteration limits use source-specific conditions such as \texttt{Niterations > 30}. Failure is not handled uniformly: some paths print diagnostics and break. The first port should make these behaviors visible and compare them before changing the policy.
+
+\subsection{13.7 Linear and stenosis methods}
+Linear junction formulas are present. A stenosis method adds a pressure-loss term of the form
+
+
+\begingroup\small
+\[
+\Delta P_{\rm stenosis}
+=
+\rho v_1^2
+\left[
+\frac{K_v}{\operatorname{Re}_1}
++\frac{K_t}{2}
+\left(\frac{A_1}{A_{\rm stenosis}}-1\right)^2
+\right],
+\]
+\endgroup
+
+
+where the Reynolds number is
+
+
+\begingroup\small
+\[
+\operatorname{Re}_1=\frac{\rho v_1D_1}{\mu},
+\qquad
+D_1=\sqrt{\frac{4A_1}{\pi}}.
+\]
+\endgroup
+
+
+The source uses a fixed area ratio in that method and a special small-Reynolds-number branch.
+
+However, current connection constructors force the scheme to \texttt{NonLinear}. The existence of the linear and stenosis functions is not evidence that normal configuration selects them.
+
+\subsection{13.8 What changes in JAX?}
+A junction residual should return a numerical residual vector without changing solution arrays. The root solver should carry an explicit candidate, residual, iteration count, and status.
+
+Use the legacy approximate Jacobian for the first comparison. A later path may use \texttt{jax.\allowbreak{}jacfwd} and a linear solve, after checking its numerical effects.
+
+Carry enough previous state for warm starts. Distinguish the global time-step index from a rolling buffer index: current guesses can reset when the memory index returns to zero.
+
+Source for this chapter: \href{/home/sadid/starfish/SolverLib/classConnections.py}{connections}.
+
+\clearpage
+\section{14. Heart, valves, and local ODE integration}
+\subsection{14.1 The heart chamber equation}
+A common time-varying elastance model uses
+
+
+\begingroup\small
+\[
+P_h(t)=E_h(t)\left(V_h(t)-V_0\right).
+\]
+\endgroup
+
+
+Here \(V_h\) is chamber volume, \(V_0\) is unstressed volume, and \(E_h\) is chamber elastance. Larger elastance means a larger pressure for the same excess volume.
+
+Volume obeys
+
+
+\begingroup\small
+\[
+\frac{dV_h}{dt}=Q_{\rm mitral}-Q_{\rm aortic}.
+\]
+\endgroup
+
+
+This is the same inflow-minus-outflow conservation principle used elsewhere.
+
+\subsection{14.2 The source elastance waveform}
+The heart models use shapes based on
+
+
+\begingroup\small
+\[
+s_1(t)=
+\frac{(t/a_1)^{n_1}}{1+(t/a_1)^{n_1}},
+\qquad
+s_2(t)=\frac1{1+(t/a_2)^{n_2}},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+E_h(t)=E_{\min}
++(E_{\max}-E_{\min})\alpha_Es_1(t)s_2(t).
+\]
+\endgroup
+
+
+Several versions set \(a_1=0.708T_{\rm peak}\) and \(a_2=1.677a_1\). Other versions store equivalent shape parameters directly.
+
+The time \(t\) here is cycle time. Cycle counters, period changes, and runtime elastance settings are state, not merely constants.
+
+\subsection{14.3 A continuously opening valve}
+Let \(\xi\) be a valve opening state between zero and one. The source's update has the form
+
+
+\begingroup\small
+\[
+\xi'=
+\begin{cases}
+\min\left(1,\xi+(1-\xi)K_{\rm open}
+(\Delta p-\Delta p_{\rm open})\Delta t\right),
+&\Delta p>\Delta p_{\rm open},\\
+\max\left(0,\xi+\xi K_{\rm close}
+(\Delta p-\Delta p_{\rm close})\Delta t\right),
+&\Delta p<-\Delta p_{\rm close},\\
+\xi,&\text{otherwise}.
+\end{cases}
+\]
+\endgroup
+
+
+Notice the exact closing expression: its branch condition uses \(-\Delta p_{\rm close}\), while the rate expression contains \(\Delta p-\Delta p_{\rm close}\). Preserve this inspected expression until any physical correction is evaluated separately.
+
+The effective opening area interpolates between minimum and maximum valve areas. The source derives coefficients including
+
+
+\begingroup\small
+\[
+B=\frac{\rho}{2A_{\rm eff}^2},
+\qquad
+L_v=\frac{\rho\ell_{\rm eff}}{A_{\rm eff}}.
+\]
+\endgroup
+
+
+A valve pressure-flow law then contains a nonlinear loss \(B Q|Q|\) and a flow-acceleration contribution.
+
+Closed-valve cases use special branches. Some current functions return \texttt{None} for coefficients. A compiled numerical function should instead carry an explicit Boolean mode and valid fixed-shape numerical values for its active branch.
+
+\subsection{14.4 The more detailed heart residual system}
+The currently selected simple residual functions in \texttt{VaryingElastance} use unknown mitral-flow increment \(dQ_m\), ventricular-pressure increment \(dP_h\), and incoming aortic characteristic \(w\).
+
+Define
+
+
+\begingroup\small
+\[
+Q_a'=Q_a+r_{21}w+r_{22}k.
+\]
+\endgroup
+
+
+The three residuals can be written
+
+
+\begingroup\small
+\[
+F_m=
+B_m(Q_m+dQ_m)|Q_m+dQ_m|
++\frac{L_m}{2\Delta t}(3dQ_m+Q_m^{n-1}-Q_m^n)
+-P_{\rm atrium}+P_h+dP_h,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+F_h=
+E_h\left[
+V_h-\frac{\Delta t}{2}
+(r_{21}w+r_{22}k+2Q_a-2Q_m-dQ_m)-V_0
+\right]-P_h-dP_h,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+F_a=
+B_aQ_a'|Q_a'|
++\frac{L_a}{2\Delta t}
+(3r_{21}w+3r_{22}k-Q_a^n+Q_a^{n-1})
+-P_h-dP_h+P_a+r_{11}w+r_{12}k.
+\]
+\endgroup
+
+
+These are the unscaled simple functions actually selected by the inspected residual dispatcher. The source also contains alternative scaled expressions; those are not the selected function array.
+
+Different valve modes select subsets of this system. The nonlinear solver uses handwritten inverse-Jacobian formulas and a relative iterate-change criterion.
+
+\subsection{14.5 The simpler heart ODE path}
+The \texttt{VaryingElastanceSimple} model uses local Forward Euler solves.
+
+During filling,
+
+
+\begingroup\small
+\[
+\dot V_h=\frac{P_{\rm atrium}-P_h}{R_v},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+\dot P_h=\dot E_h(V_h-V_0)
++E_h\frac{P_{\rm atrium}-P_h}{R_v}.
+\]
+\endgroup
+
+
+During ejection,
+
+
+\begingroup\small
+\[
+\dot V_h=-Q_a,
+\qquad
+\dot P_h=\dot E_h(V_h-V_0)-E_hQ_a,
+\]
+\endgroup
+
+
+with another characteristic-based equation for \(\dot Q_a\).
+
+The source estimates \(\dot E_h\) with a forward difference using \(10^{-5}\) s. Replacing that with an exact derivative changes the numerical procedure and should be compared separately.
+
+\subsection{14.6 Forward Euler and RK4}
+For \(\dot u=f(u,t)\), Forward Euler is
+
+
+\begingroup\small
+\[
+u^{n+1}=u^n+\Delta t\,f(u^n,t_n).
+\]
+\endgroup
+
+
+Fourth-order Runge-Kutta evaluates four slopes:
+
+
+\begingroup\small
+\[
+\begin{aligned}
+k_1&=f(u^n,t_n),\\
+k_2&=f(u^n+\tfrac{\Delta t}{2}k_1,t_n+\tfrac{\Delta t}{2}),\\
+k_3&=f(u^n+\tfrac{\Delta t}{2}k_2,t_n+\tfrac{\Delta t}{2}),\\
+k_4&=f(u^n+\Delta t k_3,t_n+\Delta t),
+\end{aligned}
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+u^{n+1}
+=u^n+\frac{\Delta t}{6}(k_1+2k_2+2k_3+k_4).
+\]
+\endgroup
+
+
+The repository implements these locally in \texttt{ODESolver.\allowbreak{}py}. A JAX port can preserve them directly. Introducing a new adaptive ODE library is not required.
+
+The local Backward Euler class depends on a \texttt{Newton} module that is not present in the inspected source inventory. Treat its support separately.
+
+\subsection{14.7 The DAE heart path}
+The DAE variant uses a scalar boundary residual during systole, reflection-like conditions when uncoupled, and explicit filling or isovolumetric steps.
+
+Several residual methods write trial chamber values into \texttt{nmem+1}. The port should calculate those trial values locally, return the residual, and commit the accepted chamber state once after the solve.
+
+The current Python array of functions and dynamically selected method names should become setup-time selection or explicit numerical branches.
+
+\subsection{14.8 What changes in JAX?}
+Use one explicit state containing chamber volume and pressure, valve states, prior flows needed by the integration scheme, cycle counters, and runtime parameters.
+
+Use \texttt{lax.\allowbreak{}cond} or equivalent fixed-shape logic for valve modes. A two-variable branch and a three-variable branch need compatible returned state, even when their internal equation systems have different sizes.
+
+Gradients inside a fixed mode can be useful. A gradient through a particular branch is not automatically a derivative of a valve's event time as a parameter changes.
+
+Sources: \href{/home/sadid/starfish/NetworkLib/classBoundaryConditions.py}{heart and valve implementations}, \href{/home/sadid/starfish/NetworkLib/ODESolver.py}{local ODE methods}.
+
+\clearpage
+\section{15. The venous pool and whole-network feedback}
+\subsection{15.1 Volume and pressure}
+The dynamic venous model advances volume using
+
+
+\begingroup\small
+\[
+V^{n+1}=V^n+\Delta t(Q_{\rm in}^n-Q_{\rm out}^n).
+\]
+\endgroup
+
+
+Its pressure law in the source is
+
+
+\begingroup\small
+\[
+P(V,V_{\rm usv})=
+P_0\exp\left[
+k\frac{((V-V_{\rm usv})10^6)^{1.5}}{V10^6}
+\right].
+\]
+\endgroup
+
+
+The factors \(10^6\) convert the stored volume scale before the empirical formula is evaluated. Dropping them would radically change the model.
+
+The fractional power requires care when \(V<V_{\rm usv}\). Preserve the current diagnostic intent instead of silently clipping the difference.
+
+\subsection{15.2 Feedback to other components}
+The venous pool estimates inflow from selected terminal boundary models and outflow from proximal heart or vessel quantities. It calculates an atrial-pressure quantity using a gain and updates supported boundary reference pressures.
+
+These updates create feedback:
+
+
+\begingroup\small
+\[
+\begin{aligned}
+\text{arterial outflow}
+&\longrightarrow\text{venous volume and pressure}\\
+&\longrightarrow\text{heart filling and outlet pressure}\\
+&\longrightarrow\text{future arterial flow}.
+\end{aligned}
+\]
+\endgroup
+
+
+The order determines which quantities come from the old or new time level. A JAX state transition must make that timing explicit.
+
+\subsection{15.3 Why recording arrays are not the complete state definition}
+The minimal evolving state is not simply the last \(P,Q,A\) arrays. A heart may need an older flow; a junction may need a previous pressure increment; a controller may need an accumulated variable.
+
+Conversely, the full recorded history is often much larger than the working state needed for the next step.
+
+List every value read from earlier times before reducing state to a two-buffer implementation.
+
+Source: \href{/home/sadid/starfish/NetworkLib/classVenousPool.py}{venous model}, \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{network end-of-step updates}.
+
+\clearpage
+\section{16. The Python CRIMSON netlist: what already exists}
+\subsection{16.1 Correcting the earlier integration assumption}
+The target project is the standalone Python package in:
+
+
+\begin{lstlisting}
+/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/
+\end{lstlisting}
+It already includes NumPy reference solvers, JAX numerical kernels, explicit-state trajectories, circuit parsing, diode logic, controller contracts, and optional C++-shaped lifecycle adapters.
+
+Therefore the port does not need to reproduce those circuit equations from C++ or communicate with the old STARFiSh C++ worker.
+
+It still needs a STARFiSh adapter. Two Python libraries do not automatically agree about units, ordering, state ownership, and time-step timing.
+
+\subsection{16.2 Existing module roles}
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Existing Python netlist module} & \textbf{Responsibility} \\
+\midrule
+\endfirsthead
+\textbf{Existing Python netlist module} & \textbf{Responsibility} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\texttt{CircuitData.\allowbreak{}py}, \texttt{NetlistXmlReader.\allowbreak{}py} & Model data and XML parsing \\
+\texttt{NetlistCircuit\_\allowbreak{}reference.\allowbreak{}py} & Readable matrix assembly and numerical solve \\
+\texttt{NetlistCircuit\_\allowbreak{}jax.\allowbreak{}py} & JAX matrix assembly, solves, interface coefficients \\
+\texttt{RCR\_\allowbreak{}reference.\allowbreak{}py}, \texttt{RCR\_\allowbreak{}jax.\allowbreak{}py} & Strictly recognized standard-RCR reduction \\
+\texttt{BoundaryConditionManager\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Optional boundary lifecycle and state ownership \\
+\texttt{CircuitData\_\allowbreak{}diode\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Diode state and graph reachability \\
+\texttt{ControllerProtocol\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Explicit controller inputs, outputs, and state \\
+\texttt{ControlSystemsManager\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Scheduling and controlled targets \\
+\texttt{ClosedLoopDownstreamSubsection\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Global downstream circuit composition \\
+\texttt{pureZeroDDriver\_\allowbreak{}reference.\allowbreak{}py}, \texttt{\_\allowbreak{}jax.\allowbreak{}py} & Standalone and generated-replacement execution \\
+\end{longtable}
+\endgroup
+A file ending in \texttt{\_\allowbreak{}jax.\allowbreak{}py} is not necessarily an entirely pure compiled API. For example, the boundary-manager implementation contains mutable Python objects around JAX kernels.
+
+Use the pure numerical functions for a compiled STARFiSh time loop. Use the host manager lifecycle as a readable integration path where appropriate.
+
+\subsection{16.3 Scope of the existing project}
+The project documents reviewed support for selected resistor, capacitor, inductor, diode, volume-tracker, pressure-chamber, controller, and closed-loop paths. It explicitly limits parity claims to its fixtures and supported combinations.
+
+Do not interpret the presence of every component class as proof that every arbitrary combined case is supported by every rollout API.
+
+Kalman filtering and restart/split-run continuation are out of the Python netlist project's scope. Normal accepted state between ordinary time steps remains essential.
+
+\subsection{16.4 A concrete environment requirement}
+The inspected \texttt{pyproject.\allowbreak{}toml} declares:
+
+
+\begin{lstlisting}
+Python: >=3.14,<3.15
+jax:    0.11.1
+jaxlib: 0.11.1
+numpy:  2.4.0
+\end{lstlisting}
+STARFiSh's Ubuntu and Fedora setup scripts default to Python 3.11.
+
+For a direct in-process integration, both projects need a compatible Python environment. The installed versions of HDF5, Chaospy, GUI dependencies, and other STARFiSh packages must also be checked in that environment.
+
+The netlist README mentions development evidence on Python 3.13, but that does not change the declared package installation target.
+
+Sources: \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/pyproject.toml}{package metadata}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/README.md}{current documentation index}.
+
+\clearpage
+\section{17. Circuit mathematics from the beginning}
+\subsection{17.1 A netlist is a graph}
+A graph contains nodes and connections. In a pressure-flow circuit:
+
+
+\begin{itemize}
+\item Nodes carry pressure values.
+
+
+\item Components connect start and end nodes.
+
+
+\item Each component has an oriented flow.
+
+
+\end{itemize}
+A positive component flow means flow from its start node to its end node. A component's positive direction may differ from the direction used by the external vessel.
+
+\subsection{17.2 Node conservation}
+At an internal node with no unmodelled storage,
+
+
+\begingroup\small
+\[
+\sum Q_{\rm entering}-\sum Q_{\rm leaving}=0.
+\]
+\endgroup
+
+
+This is often called Kirchhoff's current law, or KCL, because the same algebra is used for electrical currents. In this model, the conserved quantity is fluid flow.
+
+Storage is represented explicitly by compliance or volume components, rather than by silently violating the node equation.
+
+\subsection{17.3 Resistor}
+For a resistance \(R_{\rm res}\),
+
+
+\begingroup\small
+\[
+p_s-p_e-R_{\rm res}q=0.
+\]
+\endgroup
+
+
+The matrix row contains \(+1\) for start pressure, \(-1\) for end pressure, and \(-R_{\rm res}\) for component flow.
+
+\subsection{17.4 Capacitor or compliance}
+A compliance satisfies
+
+
+\begingroup\small
+\[
+q=C_V\frac{d(p_s-p_e)}{dt}.
+\]
+\endgroup
+
+
+Using accepted pressures \(h_{p_s},h_{p_e}\) and a time increment \(d\), backward Euler gives
+
+
+\begingroup\small
+\[
+p_s-p_e-h_{p_s}+h_{p_e}-\frac d{C_V}q=0.
+\]
+\endgroup
+
+
+The letter \(h\) means accepted history. Both endpoint pressures matter, including a fixed-pressure endpoint.
+
+For a passive RC discharge with \(R=2\), \(C=1\), old pressure 10, and step 0.1,
+
+
+\begingroup\small
+\[
+p_{\rm new}=\frac{10}{1+0.1/(2\cdot1)}
+=9.5238095238.
+\]
+\endgroup
+
+
+The pressure decreases, as expected for a passive discharge.
+
+\subsection{17.5 Inductor or inertance}
+An inertance satisfies
+
+
+\begingroup\small
+\[
+p_s-p_e=L_v\frac{dq}{dt}.
+\]
+\endgroup
+
+
+Backward Euler gives
+
+
+\begingroup\small
+\[
+p_s-p_e-\frac{L_v}{d}q
++\frac{L_v}{d}h_q=0.
+\]
+\endgroup
+
+
+The current solved flow \(q\), not the old history-flow unknown, must become the next accepted history.
+
+\subsection{17.6 Volume tracker}
+A plain volume tracker enforces
+
+
+\begingroup\small
+\[
+V-dq-h_V=0.
+\]
+\endgroup
+
+
+This integrates the selected component flow into volume. It does not impose a pressure-volume relationship.
+
+A tracker therefore cannot be treated as a resistor or chamber simply because it stores a volume.
+
+\subsection{17.7 Pressure chamber}
+A pressure chamber adds
+
+
+\begingroup\small
+\[
+\frac{p_s}{E_h}-V=-V_0,
+\]
+\endgroup
+
+
+equivalently,
+
+
+\begingroup\small
+\[
+p_s=E_h(V-V_0).
+\]
+\endgroup
+
+
+The inspected netlist implementation follows a start-node absolute-pressure convention for this row. Replacing \(p_s\) by \(p_s-p_e\) would change that convention.
+
+The dynamic array named \texttt{volume\_\allowbreak{}values} actually holds chamber elastances. It does not hold solved chamber volumes. Plain trackers and pressure chambers have different indexing requirements.
+
+\subsection{17.8 Fixed quantities and history rows}
+A fixed pressure creates an equation \(p_i=p_{\rm fixed}\). A prescribed flow creates an equation \(q_j=q_{\rm prescribed}\). A history row creates an equation such as \(h_q=q_{\rm accepted}\).
+
+This explains why the full matrix can contain both current values and accepted-history values as unknown columns. Identity rows pin the latter to their known inputs.
+
+The history entries are algebraic bookkeeping. They are not additional physical storage mechanisms.
+
+\subsection{17.9 A small complete matrix}
+Consider two resistors in series, with outlet pressure zero and prescribed inflow \(Q_{\rm in}\). Use unknowns
+
+
+\begingroup\small
+\[
+x=\begin{bmatrix}p_0&p_1&q_1&q_2\end{bmatrix}^{T}.
+\]
+\endgroup
+
+
+A reduced teaching matrix is
+
+
+\begingroup\small
+\[
+\begin{bmatrix}
+1&-1&-R_1&0\\
+0&1&0&-R_2\\
+0&0&1&-1\\
+0&0&1&0
+\end{bmatrix}
+x=
+\begin{bmatrix}0\\0\\0\\Q_{\rm in}\end{bmatrix}.
+\]
+\endgroup
+
+
+The rows mean two resistance laws, node conservation, and the input prescription.
+
+For \(R_1=2,R_2=3,Q_{\rm in}=4\), the answer is \(q_1=q_2=4\), \(p_1=12\), and \(p_0=20\).
+
+The actual generic netlist matrix retains its own fixed-pressure and history columns. This reduced matrix teaches the equations; it is not a literal layout snapshot of that implementation.
+
+\subsection{17.10 Three index spaces}
+Never confuse:
+
+
+\begin{enumerate}
+\item A node or component ID in the XML.
+
+
+\item A row index identifying an equation.
+
+
+\item A column index identifying an unknown value in \(x\).
+
+
+\end{enumerate}
+In particular, \texttt{interface\_\allowbreak{}pressure\_\allowbreak{}idx} is a solution-column index, while \texttt{interface\_\allowbreak{}flow\_\allowbreak{}rhs\_\allowbreak{}idx} is an equation-row index.
+
+They can have different numerical values. A unit response must be inserted into the flow equation row, not into the pressure solution column.
+
+Sources: \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/NETLIST_SOLVER_DEVELOPER_GUIDE.md}{regular solver mathematics}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/NetlistCircuit_jax.py}{JAX assembly}.
+
+\clearpage
+\section{18. Turning a circuit into an affine boundary relation}
+\subsection{18.1 What \textquotedblleft{}affine\textquotedblright{} means}
+An affine relationship is a straight line that may have a nonzero intercept:
+
+
+\begingroup\small
+\[
+P_{\rm port}=rQ_{\rm port}+H.
+\]
+\endgroup
+
+
+The slope \(r\) is called \texttt{dp\_\allowbreak{}dq}. The intercept \(H\) is called \texttt{Hop} in the existing netlist API.
+
+The intercept carries effects such as capacitor history, prescribed pressures, and other fixed forcing. It is not generally zero.
+
+\subsection{18.2 Derivation from the matrix}
+For fixed accepted history, time increment, parameters, and diode mode, the matrix is fixed. If the external flow enters equation row \(j\),
+
+
+\begingroup\small
+\[
+\mathcal Mx=b(Q),
+\qquad
+b(Q)=b_{\rm rest}+s_bQe_j.
+\]
+\endgroup
+
+
+Here \(e_j\) is zero in every row except row \(j\), where it equals one. The branch-orientation sign is \(s_b\). The flow prescription row in \(b_{\rm rest}\) is zero.
+
+Solve two systems:
+
+
+\begingroup\small
+\[
+\mathcal Mx=b(Q),\qquad \mathcal My=e_j.
+\]
+\endgroup
+
+
+If \(i\) is the port pressure column,
+
+
+\begingroup\small
+\[
+r=s_by_i,\qquad
+H=x_i-y_i b_j.
+\]
+\endgroup
+
+
+Then \(P_{\rm port}=rQ+H\).
+
+The existing JAX function solves both right-hand sides together as a two-column matrix. It does not form an explicit inverse.
+
+\subsection{18.3 Existing generic function}
+The inspected function is:
+
+
+\begin{lstlisting}
+compute_implicit_coefficients_jax(
+    matrix,
+    rhs,
+    interface_pressure_idx,
+    interface_flow_rhs_idx,
+    interface_flow_sign,
+)
+\end{lstlisting}
+It returns a dictionary including \texttt{dp\_\allowbreak{}dq}, \texttt{Hop}, \texttt{solution}, and \texttt{unit\_\allowbreak{}solution}.
+
+A factorized alternative can reuse a previously computed factorization and unit response when the matrix truly remains unchanged.
+
+The matrix can change when time increment, R/C/L values, chamber elastance, diode state, or active prescriptions change. Reusing a factorization merely because topology is fixed can give wrong answers.
+
+\subsection{18.4 The standard RCR reduction}
+For the strictly recognized RCR graph, let:
+
+
+\begin{itemize}
+\item \(R_p\): proximal resistance.
+
+
+\item \(R_d\): distal resistance.
+
+
+\item \(C_V\): compliance.
+
+
+\item \(p_{\rm ref}\): capacitor reference pressure.
+
+
+\item \(p_d\): distal pressure.
+
+
+\item \(d_n\): accepted capacitor pressure drop.
+
+
+\end{itemize}
+Define
+
+
+\begingroup\small
+\[
+D=\frac{C_V}{\Delta t}+\frac1{R_d}.
+\]
+\endgroup
+
+
+The intermediate pressure is
+
+
+\begingroup\small
+\[
+p_m=
+\frac{
+Q+(C_V/\Delta t)(p_{\rm ref}+d_n)+p_d/R_d
+}{D}.
+\]
+\endgroup
+
+
+The port pressure is
+
+
+\begingroup\small
+\[
+P_{\rm port}=p_m+R_pQ.
+\]
+\endgroup
+
+
+Therefore,
+
+
+\begingroup\small
+\[
+r=R_p+\frac1D,
+\qquad
+H=
+\frac{
+(C_V/\Delta t)(p_{\rm ref}+d_n)+p_d/R_d
+}{D}.
+\]
+\endgroup
+
+
+After the external solver chooses its accepted flow,
+
+
+\begingroup\small
+\[
+d_{n+1}=p_m-p_{\rm ref}.
+\]
+\endgroup
+
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\linewidth]{/home/sadid/starfish/docs/learning_guide_assets/rcr_circuit.pdf}
+\caption{The standard RCR topology with separate fixed terminal nodes.}
+\end{figure}
+
+
+\subsection{18.5 Why coefficient probing and finalization are separate}
+Calling the affine-coefficient function asks: \textquotedblleft{}with the current accepted history, what pressure would correspond to a possible flow?\textquotedblright{}
+
+It does not mean: \textquotedblleft{}advance the capacitor by one physical time step.\textquotedblright{}
+
+The existing APIs deliberately separate:
+
+
+\begin{lstlisting}
+coefficients = rcr_affine_coefficients(params, state, dt)
+next_state = rcr_finalize(params, state, accepted_flow, dt)
+\end{lstlisting}
+Repeated coefficient probes should not change \texttt{state}. Finalization occurs once after selecting the accepted interface solution.
+
+\subsection{18.6 A worked RCR example}
+Use consistent teaching units with
+
+
+\begingroup\small
+\[
+R_p=2,\quad R_d=3,\quad C_V=1,\quad
+\Delta t=0.1,\quad
+p_{\rm ref}=p_d=d_n=0.
+\]
+\endgroup
+
+
+Then
+
+
+\begingroup\small
+\[
+D=10+\frac13=\frac{31}{3},
+\qquad
+r=2+\frac3{31}=\frac{65}{31},
+\qquad H=0.
+\]
+\endgroup
+
+
+For accepted flow \(Q=4\),
+
+
+\begingroup\small
+\[
+p_m=\frac{12}{31},\qquad
+P_{\rm port}=\frac{260}{31},\qquad
+d_{n+1}=\frac{12}{31}.
+\]
+\endgroup
+
+
+Calling the probe twice still gives the same \(r,H\). Calling the finalizer twice with its updated state would advance a different physical problem.
+
+\subsection{18.7 When the fast path is valid}
+The RCR recognizer requires a particular graph and prescription pattern. It rejects additional branches, diodes, controller-driven cases, ambiguous ports, and other unsupported variations.
+
+Use it only after strict recognition. The generic circuit solver remains necessary.
+
+Sources: \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/RCR_reference.py}{RCR reference}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/RCR_jax.py}{RCR JAX functions}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/NetlistCircuit_jax.py}{generic affine functions}.
+
+\clearpage
+\section{19. Direct Python-to-Python coupling with STARFiSh}
+\subsection{19.1 The coupling contract}
+A complete binding should identify at least:
+
+
+\begin{lstlisting}
+STARFiSh vessel ID
+proximal or distal endpoint
+position in the packed outlet/input array
+netlist circuit index and named port
+physical flow orientation
+pressure and flow unit conversions
+accepted state owner
+coefficient-probe increment
+accepted full-step increment
+\end{lstlisting}
+The existing RCR grouping infrastructure already distinguishes an outlet ID, an external array position, and a circuit index.
+
+Do not bind ports by sorting two unrelated lists and zipping them together. Sorting can produce a deterministic but physically incorrect pairing.
+
+\subsection{19.2 Two different flow signs}
+First map STARFiSh vessel flow into physical flow entering the circuit:
+
+
+\begingroup\small
+\[
+Q_{\rm port}=\sigma Q_{\rm vessel},
+\qquad \sigma\in\{-1,+1\}.
+\]
+\endgroup
+
+
+For a conventional distal load, \(\sigma\) is commonly +1; a proximal source may need the opposite convention. The actual binding must say which.
+
+The netlist separately maps physical port flow into its oriented component flow using \texttt{interface\_\allowbreak{}flow\_\allowbreak{}sign}. Its affine helper already accounts for that internal sign.
+
+Applying that sign again in the STARFiSh adapter would double-correct the orientation. Keep the two mappings distinct.
+
+\subsection{19.3 Unit conversion for the affine law}
+Suppose the circuit uses mmHg and mL/s:
+
+
+\begingroup\small
+\[
+p_{\rm native}=r_{\rm native}q_{\rm native}+H_{\rm native}.
+\]
+\endgroup
+
+
+Converting into STARFiSh SI units gives
+
+
+\begingroup\small
+\[
+r_{\rm SI}=133.32\times10^6\,r_{\rm native},
+\qquad
+H_{\rm SI}=133.32\,H_{\rm native}.
+\]
+\endgroup
+
+
+Then use \(P_{\rm SI}=r_{\rm SI}Q_{\rm SI}+H_{\rm SI}\), before applying the external orientation sign.
+
+Similarly,
+
+
+\begingroup\small
+\[
+C_{V,\rm SI}
+=\frac{10^{-6}}{133.32}C_{V,\rm native}.
+\]
+\endgroup
+
+
+Pressure gauges and reference offsets must agree too. Equal numerical pressure values are not enough if one model uses a different pressure reference.
+
+The generic netlist carries numerical values; it does not infer and convert the physical unit system for an arbitrary external solver.
+
+\subsection{19.4 Distal characteristic solve}
+Let \(k\) be the known outgoing characteristic, and let \(w\) be the unknown incoming one:
+
+
+\begingroup\small
+\[
+P'=P+r_{11}k+r_{12}w,
+\qquad
+Q'=Q+r_{21}k+r_{22}w.
+\]
+\endgroup
+
+
+The circuit requires
+
+
+\begingroup\small
+\[
+P'=r(\sigma Q')+H.
+\]
+\endgroup
+
+
+Substitute and collect terms in \(w\):
+
+
+\begingroup\small
+\[
+(r_{12}-r\sigma r_{22})w
+=
+r\sigma Q+H-P
++(r\sigma r_{21}-r_{11})k.
+\]
+\endgroup
+
+
+Therefore,
+
+
+\begingroup\small
+\[
+w=
+\frac{
+r\sigma Q+H-P
++(r\sigma r_{21}-r_{11})k
+}{
+r_{12}-r\sigma r_{22}
+}.
+\]
+\endgroup
+
+
+This is the algebra already visible in STARFiSh's local Robin characteristic helper. The source of \(r,H\) changes from the worker adapter to the Python netlist.
+
+\subsection{19.5 Proximal characteristic solve}
+At a proximal endpoint, \(w=\omega_+\) is unknown and \(k=\omega_-\) is known:
+
+
+\begingroup\small
+\[
+w=
+\frac{
+r\sigma Q+H-P
++(r\sigma r_{22}-r_{12})k
+}{
+r_{11}-r\sigma r_{21}
+}.
+\]
+\endgroup
+
+
+The correct unknown column changes; an outlet formula cannot simply be reused at an inlet.
+
+\subsection{19.6 A worked distal interface example}
+Use pressure-based simplified characteristics with
+
+
+\begingroup\small
+\[
+Z_c=10^8,\quad
+\mathsf R=
+\begin{bmatrix}
+0.5&0.5\\
+5\times10^{-9}&-5\times10^{-9}
+\end{bmatrix}.
+\]
+\endgroup
+
+
+Let
+
+
+\begingroup\small
+\[
+P=10000\ {\rm Pa},\quad
+Q=10^{-5}\ {\rm m^3/s},\quad
+k=20\ {\rm Pa},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+r=2\times10^8\ {\rm Pa\,s/m^3},
+\quad H=9000\ {\rm Pa},\quad \sigma=1.
+\]
+\endgroup
+
+
+The denominator is 1.5 and the numerator is 1010 Pa, giving
+
+
+\begingroup\small
+\[
+w=673.333333\ {\rm Pa}.
+\]
+\endgroup
+
+
+Then
+
+
+\begingroup\small
+\[
+P'=10346.666667\ {\rm Pa},
+\qquad
+Q'=6.733333333\times10^{-6}\ {\rm m^3/s}.
+\]
+\endgroup
+
+
+Check the circuit relation:
+
+
+\begingroup\small
+\[
+rQ'+H=10346.666667\ {\rm Pa}=P'.
+\]
+\endgroup
+
+
+The pressure rises while flow falls because the downstream load reflects a disturbance back into the vessel. This is an algebraic teaching example, not a validated physiological case.
+
+\subsection{19.7 An integration-sized example using existing RCR functions}
+The following sketch uses real existing RCR function names. The adapter function itself is proposed and has not been installed or validated in STARFiSh.
+
+It assumes compatible SI units, one recognized RCR, a distal endpoint, a scalar known characteristic, positive physical R/C values, and a nonsingular interface denominator. A production implementation needs explicit diagnostics for violations.
+
+
+\begin{lstlisting}
+import jax
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp
+
+from RCR_jax import rcr_affine_coefficients, rcr_finalize
+
+def accepted_distal_rcr_step(P, Q, R, known_wave,
+                             params, circuit_state, dt,
+                             flow_sign=1.0):
+    coeff = rcr_affine_coefficients(params, circuit_state, dt)
+    slope = coeff.dp_dq * flow_sign
+    numerator = (
+        slope * Q + coeff.Hop - P
+        + (slope * R[1, 0] - R[0, 0]) * known_wave
+    )
+    denominator = R[0, 1] - slope * R[1, 1]
+    incoming_wave = numerator / denominator
+    waves = jnp.stack((known_wave, incoming_wave))
+    increment = R @ waves
+
+    P_next = P + increment[0]
+    Q_next = Q + increment[1]
+    next_circuit_state = rcr_finalize(
+        params, circuit_state, flow_sign * Q_next, dt
+    )
+    return P_next, Q_next, next_circuit_state
+\end{lstlisting}
+This function accepts the circuit state exactly once because its interface result is assumed final. If a larger nonlinear solve repeatedly tries boundary values, move finalization outside those trials.
+
+\subsection{19.8 Generic circuit lifecycle}
+For a generic circuit, the equivalent logical sequence is:
+
+
+\begin{lstlisting}
+begin from accepted vessel and circuit state
+    -> apply the supported controller and mode schedule
+    -> construct the circuit coefficient relation without accepting history
+    -> solve the STARFiSh endpoint or coupled endpoint system
+    -> solve the circuit using the chosen physical interface input
+    -> accept current circuit pressure/flow/volume once
+    -> determine diode flags for the next step
+    -> return combined next state and diagnostics
+\end{lstlisting}
+Exact controller timing is taken from the selected netlist lifecycle profile. Different boundary and generated-replacement profiles must not be mixed.
+
+For a first-order profile, probe increment and accepted increment may both equal \(\Delta t\). The netlist also distinguishes an alpha-step \(\alpha_f\Delta t\) from the full accepted step. Choosing \(\alpha_f\) is a numerical integration decision, not a unit conversion.
+
+\subsection{19.9 A fully compiled combined step is possible}
+Once STARFiSh is expressed as pure numerical functions, the combined state can be
+
+
+\begingroup\small
+\[
+S^n=
+(S_{\rm vessels}^n,S_{\rm circuits}^n,
+ S_{\rm controllers}^n,S_{\rm heart/veins}^n).
+\]
+\endgroup
+
+
+The joint numerical step is
+
+
+\begingroup\small
+\[
+S^{n+1}=F(S^n,\theta,I^n).
+\]
+\endgroup
+
+
+Both the 1D calculations and Python netlist calculations can then execute inside the same JAX program for supported configurations.
+
+This removes the old worker's communication and opaque-executable boundary. It creates a plausible path to end-to-end gradients. It does not eliminate hard-event discontinuities, unsupported API combinations, or the work required to make the STARFiSh half traceable.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\linewidth]{/home/sadid/starfish/docs/learning_guide_assets/combined_lifecycle.pdf}
+\caption{The proposed joint time-step lifecycle; coefficient probes do not accept history.}
+\end{figure}
+
+
+\subsection{19.10 Avoid replacing the spatial domain twice}
+The standalone pure-zero-D driver can create a generated circuit that replaces an external spatial domain.
+
+STARFiSh already is the spatial domain. Its adapter should use circuit equations and the boundary lifecycle; it should not also run the generated replacement as if that were the same physical domain.
+
+Source: \href{/home/sadid/starfish/NetworkLib/netlistInterface.py}{existing STARFiSh characteristic coupling}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/NETLIST_SOLVER_DEVELOPER_GUIDE.md}{netlist external-solver contract}.
+
+\clearpage
+\section{20. Diodes, controllers, and coupled downstream circuits}
+\subsection{20.1 Hard diode equations}
+The netlist uses a hard mode:
+
+
+\begingroup\small
+\[
+\begin{cases}
+p_s-p_e-R_dq=0,&\text{open},\\
+q=0,&\text{closed}.
+\end{cases}
+\]
+\endgroup
+
+
+A closed diode does not simultaneously impose its open pressure-drop equation.
+
+The accepted-state predicate documented by the source is
+
+
+\begingroup\small
+\[
+{\rm open}_{n+1}
+=
+(p_s-p_e\geq-10^{-8})
+\ \lor\
+(q\geq10^{-8}).
+\]
+\endgroup
+
+
+The symbol \(\lor\) means OR. Changing it to AND changes the model. The thresholds use the netlist's numerical unit convention.
+
+The next step's reachability calculation uses accepted diode flags. A flag update must not retrospectively alter the step already solved.
+
+\subsection{20.2 Reachability and interface mode}
+Reachability asks whether the external port can reach an allowed sink through components currently permitting flow.
+
+If a path exists, the circuit can receive flow and return pressure or an affine pressure relation.
+
+If blocked, its interface prescription changes: the circuit receives pressure and returns a solved flow. That flow is often zero for a fully blocked interface, but an adapter must honor the active prescription rather than assume every pressure-driven mode means zero flow.
+
+A pressure-driven netlist solve does not provide an ordinary valid \(P=rQ+H\) relation for that mode. Inactive coefficient values may be NaN; they must not enter the vessel calculation.
+
+\subsection{20.3 Controllers are functions with memory}
+A controller can observe pressure, flow, volume, and time and change a parameter.
+
+Write its operation as
+
+
+\begingroup\small
+\[
+(c^{n+1},\theta_{\rm targets},b_{\rm broadcast})
+=
+G(\theta_{\rm controller},c^n,I_{\rm controller}).
+\]
+\endgroup
+
+
+The controller configuration contains gains and setpoints. Its state contains memory such as an accumulated error or timer. Broadcast values communicate between scheduled controllers.
+
+The existing JAX protocol exposes:
+
+
+\begin{lstlisting}
+ControllerInputs:
+    dt, time, pressure, flow, volume,
+    current_target_values, broadcasts
+
+ControllerResult:
+    target_values, state, broadcasts
+\end{lstlisting}
+The controller module is selected during setup. Its numerical update can remain ordinary Python source using JAX operations, with explicit returned state.
+
+\subsection{20.4 Timing and priority are mathematical behavior}
+A controller that observes previous accepted pressure can produce a different trajectory from one observing a trial pressure.
+
+The netlist distinguishes boundary and generated-replacement update timing. Boundary controllers can use the previous accepted observations during initialization; replacement-owned controllers have their own post-replacement-finalization timing.
+
+Priorities and progressive broadcasts also matter. If a later controller can see a value computed by an earlier controller, evaluating them all simultaneously changes the program.
+
+The STARFiSh adapter must choose and document one supported lifecycle. \textquotedblleft{}Run controllers once per step\textquotedblright{} is not a sufficiently precise specification.
+
+The supported netlist profiles can distinguish raw solution-vector entries from published physical observations. Publication may recompute chamber pressure from current elastance and volume or restore prescribed values. Use the selected profile's publication/observation helpers instead of assuming every raw matrix entry is the observation a controller should receive.
+
+\subsection{20.5 Explicit numerical targets}
+A target must map a physical component ID to the correct numerical parameter-array entry.
+
+For example, controlling a resistor changes a resistor value in the matrix. Controlling chamber elastance changes a \(1/E_h\) matrix coefficient. Controlling a fixed pressure changes a right-hand-side value or active prescription.
+
+Do not mutate parsed circuit objects inside compiled calculations.
+
+The generic JAX assembler can take explicit dynamic arrays such as \texttt{resistor\_\allowbreak{}values}, \texttt{capacitor\_\allowbreak{}values}, \texttt{inductor\_\allowbreak{}values}, and \texttt{volume\_\allowbreak{}values}. Defaults can come from cached layout values. A parameter hidden in a cached default is not automatically exposed as the intended optimization variable.
+
+\subsection{20.6 Independent circuits versus a coupled downstream network}
+Independent outlet circuits can each provide their own scalar affine law.
+
+A shared downstream circuit can couple several ports:
+
+
+\begingroup\small
+\[
+\mathbf P=\mathsf Z\mathbf Q+\mathbf H.
+\]
+\endgroup
+
+
+Off-diagonal entries of \(\mathsf Z\) mean that changing one outlet flow changes another outlet pressure.
+
+Treating such a model as independent scalar loads loses that coupling. The Python netlist already has global downstream assembly infrastructure, but a STARFiSh adapter must use the relevant supported global formulation.
+
+\subsection{20.7 Coupling several characteristics at once}
+For one unknown wave per port, collect them into a vector \(\mathbf w\). Define
+
+
+\begingroup\small
+\[
+\mathbf P=\mathbf P_{\rm base}+\mathsf D_P\mathbf w,
+\qquad
+\mathbf Q=\mathbf Q_{\rm base}+\mathsf D_Q\mathbf w,
+\]
+\endgroup
+
+
+where the base terms include old values and known waves. The diagonal matrices \(\mathsf D_P,\mathsf D_Q\) contain the appropriate unknown-wave coefficients.
+
+Let \(\mathsf S\) contain external flow orientation signs. Combining with the downstream relation gives
+
+
+\begingroup\small
+\[
+(\mathsf D_P-\mathsf Z\mathsf S\mathsf D_Q)\mathbf w
+=
+\mathsf Z\mathsf S\mathbf Q_{\rm base}
++\mathbf H-\mathbf P_{\rm base}.
+\]
+\endgroup
+
+
+This small coupled solve replaces separate scalar divisions when ports interact.
+
+Mode switches may require a different fixed-shape set of rows. The exact supported construction must be checked against the existing global netlist APIs.
+
+Sources: \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/NETLIST_SOLVER_DEVELOPER_GUIDE.md}{diodes and lifecycle}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/CONTROLLER_ARCHITECTURE_TEACHING_GUIDE.md}{controller guide}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/closed_loop_lifecycle.md}{closed-loop guide}.
+
+\clearpage
+\section{21. Derived results, calibration, and uncertainty analysis}
+\subsection{21.1 Derived quantities}
+From saved \(P,Q,A\), the code can calculate velocity, compliance, wave speed, and impedance:
+
+
+\begingroup\small
+\[
+v=Q/A,\qquad
+C_A=C_A(P),\qquad
+c=\sqrt{A/(\rho C_A)},\qquad
+Z_c=\rho c/A.
+\]
+\endgroup
+
+
+Their meaning depends on the same wall parameters used by the simulation. A saved pressure array alone is not enough to reconstruct every derived quantity without those parameters.
+
+\subsection{21.2 Linear wave separation}
+Wave separation estimates contributions associated with forward and backward traveling disturbances.
+
+With a constant impedance \(Z\),
+
+
+\begingroup\small
+\[
+dP_f=\frac{dP+Z\,dQ}{2},
+\qquad
+dP_b=\frac{dP-Z\,dQ}{2},
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+dQ_f=\frac{dQ+dP/Z}{2},
+\qquad
+dQ_b=\frac{dQ-dP/Z}{2}.
+\]
+\endgroup
+
+
+The code calculates adjacent sample differences and then cumulative sums. A cumulative sum adds all increments up to each point.
+
+The current linear method first replaces the impedance array by its mean. It returns one fewer sample than the input and does not automatically restore all original baseline offsets.
+
+Changing to pointwise impedance or adding the original pressure baseline changes the reported result.
+
+\subsection{21.3 Nonlinear wave separation}
+The nonlinear postprocessing method uses the mean velocity over the supplied array to calculate local \(\lambda_\pm\) and \(Z_\pm\).
+
+Define \(S=Z_++Z_-\), and at each sample define
+
+
+\begingroup\small
+\[
+\begin{aligned}
+W_{Pf}&=(Z_+/S)P+(Z_+Z_-/S)Q,\\
+W_{Pb}&=(Z_-/S)P-(Z_+Z_-/S)Q,\\
+W_{Qf}&=P/S+(Z_-/S)Q,\\
+W_{Qb}&=-P/S+(Z_+/S)Q.
+\end{aligned}
+\]
+\endgroup
+
+
+The implemented separated increments are adjacent differences of these weighted quantities. It then cumulatively sums the increments.
+
+This is not identical to applying a constant-impedance formula to the original pressure and flow.
+
+\subsection{21.4 Peaks and timing}
+The peak detector tracks running maxima and minima and declares an extremum after the signal reverses by a selected threshold.
+
+The threshold is a fraction of the signal range:
+
+
+\begingroup\small
+\[
+\delta_{\rm signal}
+=\delta_{\rm fraction}(\max y-\min y).
+\]
+\endgroup
+
+
+The number of detected peaks depends on the data. That makes a variable-length list natural in ordinary Python and inconvenient inside a fixed-shape compiled function.
+
+An initial JAX migration can keep peak detection in host postprocessing. A compiled version needs a fixed-capacity result plus a count or validity mask.
+
+For refined peak timing, the location-of-interest code fits a parabola through three neighboring samples. With sample-offset coordinate \(s=-1,0,1\),
+
+
+\begingroup\small
+\[
+y(s)=as^2+bs+c,
+\]
+\endgroup
+
+
+
+\begingroup\small
+\[
+a=\frac{y_{+1}+y_{-1}}2-y_0,\quad
+b=\frac{y_{+1}-y_{-1}}2,\quad c=y_0.
+\]
+\endgroup
+
+
+The estimated vertex is
+
+
+\begingroup\small
+\[
+s_{\rm peak}=-\frac b{2a}.
+\]
+\endgroup
+
+
+The code interpolates that offset into time. Flat peaks, endpoints, and missing neighbors need explicit handling. An \texttt{argmax} result does not automatically make its timing differentiable as the peak moves between sample indices.
+
+\subsection{21.5 Measurement-based calibration}
+The measurement routine first scales reference pressure and area, then adjusts wall parameters to match a target carotid-femoral wave speed.
+
+For a path with segments \(j\), it estimates travel time using
+
+
+\begingroup\small
+\[
+T_{\rm path}\approx
+\sum_j\frac{\ell_j}{\overline c_j}.
+\]
+\endgroup
+
+
+A path-difference speed is
+
+
+\begingroup\small
+\[
+c_{\rm cf}
+=
+\frac{L_{\rm femoral}-L_{\rm carotid}}
+{T_{\rm femoral}-T_{\rm carotid}}.
+\]
+\endgroup
+
+
+The calibration residual is
+
+
+\begingroup\small
+\[
+F(\alpha_c)=c_{\rm measured}-c_{\rm cf}(\alpha_c).
+\]
+\endgroup
+
+
+The current SciPy root call changes material coefficients on vessel objects during residual evaluation. In JAX, evaluate trial material parameters locally and return the residual without mutating the network.
+
+The material multiplier is not universally the same as a direct wave-speed multiplier. The wall law determines the actual dependence.
+
+\subsection{21.6 What uncertainty means}
+An uncertain parameter is represented by several possible values and a probability distribution. A sample is one selected parameter combination. A quantity of interest, or QoI, is a result we want to study, such as pressure at one location or the time of a peak.
+
+Write
+
+
+\begingroup\small
+\[
+Y=f(\theta),
+\]
+\endgroup
+
+
+where \(\theta\) is the parameter vector and \(Y\) is the QoI.
+
+Uncertainty propagation asks how the distribution of \(\theta\) affects \(Y\). This differs from automatic differentiation, which asks how a small parameter change affects a result locally.
+
+\subsection{21.7 Monte Carlo averages}
+For \(M\) results \(Y_1,\ldots,Y_M\), the sample average is
+
+
+\begingroup\small
+\[
+\widehat\mu=\frac1M\sum_{m=1}^{M}Y_m.
+\]
+\endgroup
+
+
+The source's basic population-style variance estimate is
+
+
+\begingroup\small
+\[
+\widehat V
+=\frac1M\sum_{m=1}^{M}Y_m^2-\widehat\mu^2.
+\]
+\endgroup
+
+
+This uses \(M\), not the \(M-1\) denominator of an unbiased sample-variance estimator. Changing the denominator changes the statistic.
+
+The difference-of-squares expression can lose precision when the variance is small compared with the mean. A numerically improved estimator should be introduced separately from the parity port.
+
+The code also reports percentiles. A central 95\% interval across sampled outcomes is a distribution interval; it is not automatically a 95\% confidence interval for the estimated mean, despite the existing field name.
+
+\subsection{21.8 Polynomial chaos}
+Polynomial chaos approximates the dependence on random inputs with polynomials:
+
+
+\begingroup\small
+\[
+Y(\theta)\approx\sum_{k=0}^{K-1}a_k\psi_k(\theta).
+\]
+\endgroup
+
+
+The basis functions \(\psi_k\) are chosen to be orthogonal under the input distribution. Orthogonal means their probability-weighted products average to zero for distinct basis terms.
+
+With \(\psi_0=1\) and a normalized basis,
+
+
+\begingroup\small
+\[
+\mathbb E[Y]\approx a_0,
+\qquad
+\operatorname{Var}(Y)\approx\sum_{k>0}a_k^2.
+\]
+\endgroup
+
+
+For an orthogonal but unnormalized basis, include each basis norm:
+
+
+\begingroup\small
+\[
+\operatorname{Var}(Y)
+\approx\sum_{k>0}a_k^2\mathbb E[\psi_k^2].
+\]
+\endgroup
+
+
+In regression, evaluate the basis at the samples and fit coefficients:
+
+
+\begingroup\small
+\[
+\Psi_{mk}=\psi_k(\theta_m),\qquad
+\min_a\|\Psi a-Y\|^2.
+\]
+\endgroup
+
+
+In quadrature-based fitting, use weighted sample evaluations to approximate the corresponding probability integrals.
+
+The current project delegates these polynomial objects and operations to Chaospy. Merely changing \texttt{np} to \texttt{jnp} does not replace Chaospy's polynomial representation.
+
+\subsection{21.9 Sensitivity indices}
+For independent inputs, a first-order sensitivity measure is
+
+
+\begingroup\small
+\[
+S_i=
+\frac{\operatorname{Var}(\mathbb E[Y\mid\theta_i])}
+{\operatorname{Var}(Y)}.
+\]
+\endgroup
+
+
+It measures the fraction of output variance explained by input \(i\) alone.
+
+A total-effect measure includes interactions:
+
+
+\begingroup\small
+\[
+S_{T_i}
+=
+1-\frac{
+\operatorname{Var}(\mathbb E[Y\mid\theta_{\sim i}])
+}{
+\operatorname{Var}(Y)
+}.
+\]
+\endgroup
+
+
+The notation \(\theta_{\sim i}\) means all inputs except \(i\).
+
+The Monte Carlo code builds two sample matrices A and B and hybrid matrices obtained by replacing one column of B with the corresponding column of A. It evaluates all those parameter sets and forms cross-products of centered QoI values.
+
+Preserve the sample orientation and which matrix supplies the replaced column. Reversing the construction can invalidate the implemented estimator.
+
+\subsection{21.10 Correlated inputs}
+Independent inputs can be sampled separately. Correlated inputs require a joint distribution.
+
+The source uses Chaospy joint distributions and a Nataf-based dependent distribution. A transformation from independent to dependent samples is applied through distribution forward and inverse transforms.
+
+Ordinary independent-input Sobol interpretations do not automatically carry over to correlated inputs. The source uses specialized dependent-analysis paths; port them according to their actual definitions.
+
+\subsection{21.11 Specialized peak-dependent polynomial methods}
+The \texttt{DepDir} families fit peak timing and split samples into groups before and after a selected time.
+
+Let \(T_{\rm peak}(\theta)\) be a fitted peak-time surface, \(L(\theta)\) and \(R(\theta)\) fitted left/right response surfaces, and \(F(\theta)\) a full-sample fit. The source constructs transformed variables including:
+
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Family} & \textbf{Transformed response variables} \\
+\midrule
+\endfirsthead
+\textbf{Family} & \textbf{Transformed response variables} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+LR and LRorder & \(L\,1_{T_{\rm peak}<t}\), \(R\,1_{T_{\rm peak}\geq t}\) \\
+FLR & \(F\), \(L\,1_{T_{\rm peak}<t}\), \(R\,1_{T_{\rm peak}\geq t}\) \\
+FL & \(L\,1_{T_{\rm peak}<t}\), \(F\) \\
+FR & \(F\), \(R\,1_{T_{\rm peak}\geq t}\) \\
+QL & First three input coordinates, \(L\,1_{T_{\rm peak}<t}\) \\
+QR & First three input coordinates, \(R\,1_{T_{\rm peak}\geq t}\) \\
+\end{longtable}
+\endgroup
+The symbol \(1_{\rm condition}\) equals one when the condition holds and zero otherwise.
+
+The code estimates moments of these transformed variables, builds another orthogonal basis, fits another polynomial, and extracts expectation and variance. LR variants differ in order selection and fitting details.
+
+These are specialized legacy algorithms, not just ordinary means and variances. Their old Chaospy API use, data-dependent sample splits, hard indicator functions, and assumptions about input dimension require individual reference cases before any rewrite.
+
+\subsection{21.12 The \textquotedblleft{}bootstrapping\textquotedblright{} class}
+The class named \texttt{MonteCarloParametrizedBootstrapping} calculates means and variances over sample windows at different offsets. Its name alone should not be taken to mean that it performs a conventional random resampling bootstrap.
+
+Some dependent-input and sensitivity combinations explicitly raise \texttt{NotImplementedError}.
+
+\subsection{21.13 What changes in JAX?}
+A useful first design is:
+
+
+\begin{lstlisting}
+Chaospy generates explicit parameter samples
+    -> JAX evaluates many STARFiSh/netlist simulations
+    -> selected results become host arrays
+    -> existing statistics and plotting consume those arrays
+\end{lstlisting}
+Use the same frozen samples when comparing implementations. If sampling itself is later moved to JAX, explicit random-number state and reproducibility become additional requirements.
+
+Sources: \href{/home/sadid/starfish/UtilityLib/processing.py}{wave processing}, \href{/home/sadid/starfish/VascularPolynomialChaosLib/classLocationOfInterest.py}{location-of-interest processing}, \href{/home/sadid/starfish/NetworkLib/classMeasurements.py}{measurement calibration}, \href{/home/sadid/starfish/VascularPolynomialChaosLib/classUqsaMethods.py}{UQ methods}, \href{/home/sadid/starfish/VascularPolynomialChaosLib/classSampleManager.py}{sampling}.
+
+\clearpage
+\section{22. What JAX does and how it differs from NumPy}
+\subsection{22.1 Four separate capabilities}
+JAX provides an array library and transformations of numerical functions.
+
+
+\begin{itemize}
+\item \texttt{jax.\allowbreak{}numpy}: array arithmetic resembling NumPy.
+
+
+\item \texttt{jax.\allowbreak{}jit}: compile a numerical function for repeated execution.
+
+
+\item \texttt{jax.\allowbreak{}vmap}: evaluate a numerical function across a batch dimension.
+
+
+\item \texttt{jax.\allowbreak{}grad}: differentiate a scalar-valued numerical function.
+
+
+\end{itemize}
+They solve different problems. Code can use JAX arrays without efficiently compiling a whole time step. Code can compile successfully without supporting the desired gradient.
+
+\subsection{22.2 Ordinary JAX arrays are immutable}
+A NumPy array supports:
+
+
+\begin{lstlisting}
+pressure[i] = value
+\end{lstlisting}
+An ordinary JAX array uses a functional update:
+
+
+\begin{lstlisting}
+next_pressure = pressure.at[i].set(value)
+\end{lstlisting}
+The original value remains available. Within compiled execution, JAX can optimize buffer use; this does not mean the programming interface has NumPy's shared-mutation behavior.
+
+For STARFiSh, rebinding \texttt{field.\allowbreak{}P} to the updated array would not update the vessel's and recorder's other references. This is why array ownership must change.
+
+Reference: \href{https://docs.jax.dev/en/latest/101/arrays.html}{JAX arrays}.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\linewidth]{/home/sadid/starfish/docs/learning_guide_assets/state_ownership.pdf}
+\caption{Shared array ownership compared with explicit returned JAX state.}
+\end{figure}
+
+
+\subsection{22.3 Pure numerical functions}
+A pure numerical function returns outputs determined by its explicit inputs and does not secretly change other objects.
+
+The useful form is:
+
+
+\begin{lstlisting}
+next_state, observations = step(state, parameters, inputs)
+\end{lstlisting}
+Changing a Python object during tracing is not a reliable way to update runtime numerical state.
+
+Do not mark a mutable network object as a static \texttt{self} argument and assume that later parameter or history changes will be noticed by the compiled program.
+
+\subsection{22.4 Tracing and compilation}
+During tracing, JAX records array operations. A traced value may have a known shape and numerical type while its numerical contents are unknown.
+
+For example, a pressure array may be known to contain 50 float64 values without knowing those 50 values.
+
+JAX can compile one program that works for many pressure arrays with that same structure. If the number of grid points changes, another program may need to be compiled.
+
+Python work based only on fixed model choices can happen during setup or tracing. Python decisions requiring unknown numerical data need traceable array/control-flow operations.
+
+\subsection{22.5 Static structure versus dynamic numbers}
+Static structure includes topology, number of grid points, component indexing, and which wall model is used.
+
+Dynamic numbers include current pressure, material stiffness, resistance values, and controller state.
+
+A stiffness value should usually be a dynamic input even when it stays constant for a particular run. That lets another simulation or optimization trial change it without rebuilding topology.
+
+The Python netlist's explicit parameter-array inputs already demonstrate this design.
+
+\subsection{22.6 A PyTree}
+A PyTree is a supported nested structure of arrays, such as a tuple or dictionary.
+
+For example:
+
+
+\begin{lstlisting}
+state = {
+    "vessels": (
+        {"pressure": p0, "flow": q0, "area": a0},
+        {"pressure": p1, "flow": q1, "area": a1},
+    ),
+    "circuits": circuit_state,
+    "heart": heart_state,
+}
+\end{lstlisting}
+The first vessel can have 50 nodes and the second 25. JAX does not require these two leaves to have the same shape. It requires the selected compiled function's structure and leaf shapes to remain compatible across calls.
+
+A PyTree is a convenient container, not a guarantee that all values placed inside it are traceable. An HDF5 file object or arbitrary Python callback does not become numerical state by being put in a dictionary.
+
+\subsection{22.7 Data-dependent branches}
+This ordinary Python branch fails when its condition is an unknown traced scalar:
+
+
+\begin{lstlisting}
+if pressure < 0:
+    ...
+\end{lstlisting}
+A scalar numerical branch can use \texttt{jax.\allowbreak{}lax.\allowbreak{}cond}. Elementwise selection can use \texttt{jnp.\allowbreak{}where}.
+
+Both \texttt{cond} branches need compatible output structures and shapes. An open valve and closed valve should therefore return the same overall state structure.
+
+With \texttt{where}, avoid constructing invalid calculations such as an unguarded division by zero in an inactive expression. Selection is not a universal substitute for safe domain handling.
+
+\subsection{22.8 Loops}
+A fixed Python loop inside a compiled function can be unrolled into many recorded operations. For long time histories, this can make compilation enormous.
+
+\texttt{jax.\allowbreak{}lax.\allowbreak{}scan} expresses repeated steps with carried state:
+
+
+\begin{lstlisting}
+def scan_step(state, step_input):
+    next_state, output = step(state, parameters, step_input)
+    return next_state, output
+
+final_state, outputs = jax.lax.scan(
+    scan_step, initial_state, inputs_by_step
+)
+\end{lstlisting}
+The carry has a fixed structure, shape, and numerical type. A data-dependent loop can use \texttt{lax.\allowbreak{}while\_\allowbreak{}loop}, with different differentiation restrictions.
+
+References: \href{https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html}{scan}, \href{https://docs.jax.dev/en/latest/_autosummary/jax.lax.while_loop.html}{while\_loop}.
+
+\subsection{22.9 A batch of simulations}
+If one function maps one parameter set to one result,
+
+
+\begingroup\small
+\[
+Y=f(\theta),
+\]
+\endgroup
+
+
+then batching asks for \(f(\theta_1),\ldots,f(\theta_B)\).
+
+\texttt{vmap} can add that batch dimension. It does not remove time dependence: each simulation still advances through its own state sequence.
+
+Different vessel lengths within one fixed network are compatible with a PyTree. Different grid sizes for the same vessel across batch members require grouping, padding/masking, or separate calls.
+
+\subsection{22.10 Precision}
+Enable float64 before creating the scientific arrays:
+
+
+\begin{lstlisting}
+import jax
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp
+\end{lstlisting}
+Use explicit dtypes for numerical state and parameters. A float64 file written after float32 computation does not recover the precision already lost.
+
+Reference: \href{https://docs.jax.dev/en/latest/101/default_dtypes.html}{JAX float64 configuration}.
+
+\subsection{22.11 Mutable references are an alternative tool}
+Current JAX also offers mutable references with transformation and aliasing restrictions.
+
+They can help implement internal memory operations, but do not automatically solve STARFiSh's existing multiple-owner alias structure. An explicit returned state is the clearest initial basis for composing the vessel and netlist calculations.
+
+Reference: \href{https://docs.jax.dev/en/latest/array_refs.html}{JAX references}.
+
+\subsection{22.12 Crossing back to host Python}
+XML parsing, file access, module loading, user interfaces, and final reporting remain ordinary Python work.
+
+A conversion such as \texttt{float(jax\_\allowbreak{}value)} or \texttt{np.\allowbreak{}asarray(jax\_\allowbreak{}value)} inside a traced calculation can fail or force an unwanted boundary.
+
+The current network volume code ends with a Python scalar conversion. Its compiled replacement should return a JAX scalar; convert only when the host writer or user interface actually needs it.
+
+\subsection{22.13 Constructing arrays and accumulating contributions}
+A small characteristic matrix can be constructed directly:
+
+
+\begin{lstlisting}
+# Proposed pattern for simplified pressure coordinates.
+# Zc is a scalar impedance here.
+half = jnp.asarray(0.5, dtype=jnp.float64)
+R = jnp.stack((
+    jnp.stack((half, half)),
+    jnp.stack((half / Zc, -half / Zc)),
+))
+\end{lstlisting}
+A matrix assembled from many circuit contributions instead uses indexed accumulation:
+
+
+\begin{lstlisting}
+matrix = matrix.at[row_indices, column_indices].add(values)
+\end{lstlisting}
+The word \texttt{add} matters. If several contributions belong to the same matrix entry, they must be summed. Replacing this with \texttt{set} can overwrite a contribution.
+
+A numerical array cannot contain arbitrary Python function objects. The current heart residual dispatcher needs ordinary setup-time function selection or numerical branch logic rather than a JAX translation of its object array.
+
+\clearpage
+\section{23. A concrete state design for the port}
+\subsection{23.1 Four different kinds of information}
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Kind} & \textbf{Examples} & \textbf{Intended owner} \\
+\midrule
+\endfirsthead
+\textbf{Kind} & \textbf{Examples} & \textbf{Intended owner} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Model structure & Tree connections, port maps, node counts, equation rows & Host-built static layout \\
+Numerical parameters & Wall stiffness, R/C/L values, prescribed pressure samples & Explicit numerical parameter structure \\
+Working state & Current and required previous values, diode flags, controller memory & Explicit step input and output \\
+Recorded history & Saved waveforms, diagnostics, visualization data & Separate recorder \\
+\end{longtable}
+\endgroup
+Keeping these concepts separate prevents a recorded array from accidentally becoming the only owner of the physical state.
+
+\subsection{23.2 A vessel state}
+A starting point is
+
+
+\begin{lstlisting}
+VesselState:
+    pressure[N]
+    flow[N]
+    area[N]
+    previous endpoint values required by warm starts
+\end{lstlisting}
+Wall parameters belong to a separate parameter structure. Grid coordinates and connection indices belong to the static layout.
+
+Whether area is independently carried or derived from pressure must preserve the rigid-area and constant-compliance options.
+
+\subsection{23.3 Boundary state}
+Different boundary families need different numerical leaves:
+
+
+\begin{itemize}
+\item Windkessel: accepted pressure state and captured first-run impedance if used.
+
+
+\item Heart: volume, pressure, valve states, prior flows, cycle state.
+
+
+\item Venous pool: volume, unstressed-volume state where applicable, pressure-related state.
+
+
+\item Netlist: accepted pressure/flow/volume histories, diode modes, controller state.
+
+
+\item Runtime waveform: phase, last prescribed value, and pending period changes if needed.
+
+
+\end{itemize}
+A zero-state algebraic boundary can use an empty fixed structure.
+
+\subsection{23.4 Combined step pseudocode}
+
+\begin{lstlisting}
+# Architectural pseudocode. Names are proposed.
+def combined_step(state, parameters, inputs, layout):
+    prepared = prepare_boundary_modes_and_controllers(
+        state, parameters, inputs, layout
+    )
+
+    interior = calculate_vessel_interiors(
+        state.vessels, parameters.vessels, inputs, layout
+    )
+
+    known_waves = calculate_outgoing_characteristics(
+        state.vessels, parameters.vessels, inputs, layout
+    )
+
+    endpoints, trial_circuits = solve_boundaries_and_junctions(
+        state, prepared, known_waves, parameters, inputs, layout
+    )
+
+    next_vessels = assemble_vessel_results(interior, endpoints)
+    next_feedback = update_heart_venous_feedback(
+        state, next_vessels, prepared, parameters, inputs, layout
+    )
+
+    next_circuits = accept_circuit_results_once(
+        state.circuits, trial_circuits, layout
+    )
+
+    return build_next_state(
+        next_vessels, next_feedback, next_circuits
+    ), collect_diagnostics(...)
+\end{lstlisting}
+This describes responsibilities. It does not authorize reordering the existing STARFiSh list without checking dependencies, and it does not define a universal controller schedule for every netlist profile.
+
+\subsection{23.5 Exceptions become explicit numerical status}
+Host setup can reject malformed geometry and invalid units using ordinary exceptions.
+
+Compiled calculations should also return status such as:
+
+
+\begin{lstlisting}
+all_values_finite
+minimum_pressure
+minimum_area
+junction_residual_norms
+junction_iteration_counts
+interface_residuals
+first_failure_step
+\end{lstlisting}
+A compiled block that detects failure should preserve the first failure information and the intended last usable state. The host can then report an error and write diagnostic output.
+
+Do not silently replace failed values by zero or a small positive constant. That creates a different numerical model.
+
+\subsection{23.6 Keep the readable reference implementation}
+A separate NumPy reference path makes it easier to identify a wrong sign, stale state, or indexing mistake. The Python netlist already uses this paired pattern.
+
+Share parsing and static model construction. Keep numerical execution independent enough that a reference comparison can expose a JAX-specific error.
+
+\clearpage
+\section{24. Differentiation and parameter fitting}
+\subsection{24.1 What a derivative tells us}
+If a result \(Y\) depends on a parameter \(\theta\), the derivative \(dY/d\theta\) describes its sensitivity to a small change.
+
+For \(Y=\theta^2\), the derivative is \(2\theta\). Near \(\theta=3\), increasing the parameter by 0.01 changes \(Y\) by approximately 0.06.
+
+A gradient collects one derivative for every parameter.
+
+\subsection{24.2 The derivative of a complete discrete simulation}
+A numerical simulation repeatedly applies
+
+
+\begingroup\small
+\[
+S^{n+1}=F(S^n,\theta,I^n).
+\]
+\endgroup
+
+
+If the operations are differentiable, their derivatives can be composed through all time steps. JAX automates that composition.
+
+The result is a derivative of the \textbf{implemented discrete calculation}. It is not automatically the exact derivative of the underlying continuous physical system.
+
+If initial state, inflow, geometry, or controller settings depend on \(\theta\), those dependencies must be included as inputs to the differentiable computation.
+
+\subsection{24.3 Differentiating a linear solve}
+For
+
+
+\begingroup\small
+\[
+\mathcal M(\theta)x(\theta)=b(\theta),
+\]
+\endgroup
+
+
+a small change gives
+
+
+\begingroup\small
+\[
+\mathcal M\,dx+(d\mathcal M)x=db.
+\]
+\endgroup
+
+
+Therefore,
+
+
+\begingroup\small
+\[
+dx=\mathcal M^{-1}(db-(d\mathcal M)x).
+\]
+\endgroup
+
+
+Numerically, this is another linear solve, not a need to explicitly build an inverse.
+
+This is why circuit matrices, affine coefficient calculations, and the joint characteristic solve can participate in gradients when their numerical inputs and supported operations remain inside JAX.
+
+\subsection{24.4 Differentiating a nonlinear root}
+If
+
+
+\begingroup\small
+\[
+F(x,\theta)=0
+\]
+\endgroup
+
+
+and the root Jacobian is nonsingular, implicit differentiation gives
+
+
+\begingroup\small
+\[
+\frac{dx}{d\theta}
+=
+-\left(\frac{\partial F}{\partial x}\right)^{-1}
+\frac{\partial F}{\partial\theta}.
+\]
+\endgroup
+
+
+This describes the converged root. It is not necessarily the same as differentiating a fixed small number of iterations that has not converged.
+
+A derivative design needs a forward convergence check and a decision about singular or nearly singular roots.
+
+\subsection{24.5 Dynamic loops and gradients}
+A \texttt{lax.\allowbreak{}while\_\allowbreak{}loop} can compile nonlinear iteration, but ordinary reverse-mode differentiation through it is unsupported.
+
+Two possible designs are:
+
+
+\begin{itemize}
+\item A fixed maximum number of iterations with an active/converged mask.
+
+
+\item A root-solving operation with an appropriate implicit derivative.
+
+
+\end{itemize}
+The first differentiates the chosen bounded algorithm. The second differentiates the equation's local root under its assumptions.
+
+A forward port and a differentiable solver are related but distinct milestones.
+
+\subsection{24.6 Hard events}
+Diode switching, valve thresholds, selecting a peak index, and changing a sample group introduce hard decisions.
+
+JAX can differentiate the arithmetic executed in a particular branch. That does not supply a smooth gradient across changes in the branch or event sequence.
+
+A smooth surrogate valve would be a new physical model. Do not introduce one simply to make an optimizer happy.
+
+\subsection{24.7 Fixed discretization during initial gradient work}
+The selected time step depends on estimated wave speed. The number of steps uses a ceiling operation. Grid counts and topology are discrete choices.
+
+For an initial parameter-fitting experiment, choose and document a fixed grid and time discretization. Compare gradients of that same discrete problem.
+
+Otherwise a small parameter change can change both physics and the number of steps, making a simple derivative interpretation misleading.
+
+\subsection{24.8 A loss function}
+A loss measures disagreement with observed or target values. For pressure and flow,
+
+
+\begingroup\small
+\[
+J(\theta)=
+\sum_{n,i}\left[
+\left(\frac{P_{n,i}(\theta)-P_{n,i}^{\rm target}}{P_{\rm scale}}\right)^2
++
+\left(\frac{Q_{n,i}(\theta)-Q_{n,i}^{\rm target}}{Q_{\rm scale}}\right)^2
+\right].
+\]
+\endgroup
+
+
+The scales make the two contributions dimensionless. Without them, pressure's large numerical values can dominate flow's small values merely because different units are used.
+
+Any regularization term, such as a penalty on moving parameters far from reference values, should be explicit.
+
+\subsection{24.9 Positive physical parameters}
+An optimizer can operate on an unconstrained coordinate \(\eta\) and convert it into a positive physical value:
+
+
+\begingroup\small
+\[
+R_{\rm physical}=\operatorname{softplus}(\eta)+R_{\min},
+\qquad
+\operatorname{softplus}(\eta)=\log(1+e^\eta).
+\]
+\endgroup
+
+
+The Python netlist has optional helpers following this approach.
+
+Keep the transformation at the optimization boundary. The physical solver should receive the intended positive resistance, compliance, or inertance and should not silently clip invalid values.
+
+\subsection{24.10 Checking a gradient}
+A central finite-difference estimate is
+
+
+\begingroup\small
+\[
+\frac{dJ}{d\theta_i}
+\approx
+\frac{
+J(\theta+\varepsilon e_i)-J(\theta-\varepsilon e_i)
+}{2\varepsilon}.
+\]
+\endgroup
+
+
+Compare several sensible perturbation sizes, away from singularities and changing hard-event sequences. Too small a perturbation suffers rounding; too large a perturbation measures a nonlocal change.
+
+A finite-difference comparison is useful evidence. It does not replace checking the physical equation and lifecycle.
+
+\clearpage
+\section{25. Performance, batching, and compilation}
+\subsection{25.1 Why JAX is not automatically faster}
+A calculation has several costs:
+
+
+\begingroup\small
+\[
+T_{\rm run}
+=
+T_{\rm setup}+T_{\rm compile}
++T_{\rm numerical}
++T_{\rm transfer}
++T_{\rm output}.
+\]
+\endgroup
+
+
+The first call may compile. Later calls can reuse a compiled program. Small array operations can be dominated by overhead.
+
+The supplied \texttt{bigDaddy\_\allowbreak{}Reymond2009} XML contains 55 vessels but only 275 spatial points. The larger \texttt{adan56\_\allowbreak{}benchmark2015} XML contains 77 vessels and 2,185 points. Those counts come from the actual files, not the names.
+
+GPU acceleration for one such run must be measured. Batching many compatible simulations is a stronger candidate for amortizing overhead.
+
+\subsection{25.2 CPU first is a useful comparison}
+A compiled CPU implementation can reduce Python dispatch while avoiding accelerator transfer costs. It is a meaningful baseline even when GPU execution is an eventual goal.
+
+Compare the same precision, same equations, same input data, and same recorded output.
+
+\subsection{25.3 Batch structure}
+A batch of \(B\) simulations introduces a sample dimension. A vessel pressure leaf might have shape \((B,N)\).
+
+Within one batch, corresponding leaves need compatible shapes. If sample-dependent time-step selection produces different step counts, use a documented strategy:
+
+
+\begin{itemize}
+\item Group compatible runs.
+
+
+\item Use masks within a common maximum step count.
+
+
+\item Choose a common fixed discretization and treat that as an explicit numerical choice.
+
+
+\end{itemize}
+Changing the time grid only to simplify batching can change accuracy and output times.
+
+\subsection{25.4 Padding has a cost}
+The larger arterial template has 7-79 nodes per vessel. Padding all 77 vessels to 79 nodes would allocate 6,083 spatial slots instead of 2,185, about 2.78 times as many.
+
+A fixed collection of differently shaped arrays avoids that initial expansion. Grouping vessels with similar sizes or flattening their arrays are later optimization choices.
+
+Do not impose a padded representation before establishing that batching across vessels is the right bottleneck.
+
+\subsection{25.5 Compiling a step versus a trajectory}
+A compiled step is useful for live coupling or frequent host interaction. A compiled block or trajectory can reduce dispatch further when all interacting numerical state is inside the program.
+
+Because both STARFiSh and the Python netlist can use JAX, a combined block is possible for supported cases. Future interface values should be generated by that combined step, not supplied as if they were already known from an offline trajectory.
+
+\subsection{25.6 Matrix and factorization reuse}
+If a circuit matrix remains constant, factorization can be reused while the right-hand side changes.
+
+A matrix changes when relevant numerical coefficients, time increments, diode modes, or active constraints change. A controller changing elastance or resistance can invalidate reuse even with unchanged graph connectivity.
+
+A JAX compilation cache stores compiled code. It is different from a cache of numerical matrix factorizations.
+
+\subsection{25.7 Fair timing}
+JAX dispatch can be asynchronous. Synchronize before ending a timed measurement:
+
+
+\begin{lstlisting}
+result = compiled_function(inputs)
+jax.block_until_ready(result)
+\end{lstlisting}
+Report compilation and steady execution separately, and also report the complete application time. A numerical-kernel benchmark excluding file output is useful only when labelled as such.
+
+Reference: \href{https://docs.jax.dev/en/latest/benchmarking.html}{JAX benchmarking}.
+
+\clearpage
+\section{26. Recording, visualization, and host integration}
+\subsection{26.1 Working state versus saved history}
+The working state contains values required for the next step. Saved history contains values needed for later analysis.
+
+A calculation that needs two previous endpoint flows does not need every pressure value from the beginning of time. Conversely, a user may want a complete saved waveform even though the numerical step only needs the current state.
+
+\subsection{26.2 Current memory management}
+The runtime memory manager estimates the size per time step, allocates a limited buffer, writes selected rows to HDF5, and rolls the final buffer row into the first position.
+
+It also tracks a global time index, a memory index, a chunk count, and save-skipping offsets.
+
+Those are different indices. Confusing them can repeat, skip, or mislabel output.
+
+\subsection{26.3 Proposed compiled recording}
+A JAX block should:
+
+
+\begin{enumerate}
+\item Carry the necessary physical state.
+
+
+\item Advance a fixed or otherwise supported number of steps.
+
+
+\item Collect the requested observations.
+
+
+\item Return the next carried state and a bounded output chunk.
+
+
+\item Let host Python write that chunk.
+
+
+\end{enumerate}
+If \texttt{scan} returns the full state at every time, it can allocate an enormous history. Returning smaller observations or using carefully designed sampled recording controls that cost.
+
+A final partial block can use a supported short block or masked steps. Masked steps must not accidentally advance a controller or a circuit.
+
+\subsection{26.4 A memory example}
+Pressure, flow, and area for 2,185 nodes require approximately
+
+
+\begingroup\small
+\[
+3\times2185\times8=52440\ {\rm bytes}
+\]
+\endgroup
+
+
+per time sample in float64.
+
+For 100,000 samples this is about 5.24 GB before other model histories, temporary arrays, or batching.
+
+This is why preserving memory-bounded recording is part of feature preservation.
+
+\subsection{26.5 HDF5, plotting, and CSV}
+These operations can continue to use host NumPy arrays. Convert explicit saved chunks after numerical execution.
+
+Preserve dataset names, units, shape, time ordering, initialization-period behavior, and save intervals. A graph that looks similar is not enough to establish compatible data output.
+
+Plotting or writing one scalar every time step can force repeated synchronization. Choose update frequencies appropriate for real-time display and expose that choice separately from the solver's physical time step.
+
+\subsection{26.6 Checkpoints, restarts, and project scope}
+Ordinary in-memory accepted state and chunked output are required for the simulation.
+
+A new restart-file or split-run continuation feature is a separate capability. The Python netlist project explicitly excludes that scope, so this guide does not propose adding it as a prerequisite for the port.
+
+\subsection{26.7 Package boundaries}
+The target numerical path can call the installed Python netlist modules directly. XML parsing and static layout construction happen before compilation.
+
+Keep the JAX numerical dependency optional where practical for tools that only edit or visualize a network. The numerical runtime should have one explicit precision and version policy.
+
+Sources: \href{/home/sadid/starfish/UtilityLib/classRuntimeMemoryManager.py}{runtime memory manager}, \href{/home/sadid/starfish/UtilityLib/classStarfishBaseObject.py}{allocation and datasets}, \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{network output}.
+
+\clearpage
+\section{27. How to decide whether the port is correct}
+\subsection{27.1 Three different questions}
+A useful review distinguishes:
+
+
+\begin{enumerate}
+\item Did the new code reproduce the selected current implementation?
+
+
+\item Does that implementation satisfy its intended equations and conservation laws?
+
+
+\item Is the selected physical model appropriate for its intended application?
+
+
+\end{enumerate}
+A reference comparison mainly addresses the first question. Equation checks address the second. Scientific validation needs independent evidence for the third.
+
+A close NumPy/JAX match cannot repair a shared mathematical mistake.
+
+\subsection{27.2 Repair the reference checks first}
+The inspected single-vessel regression gives the new and reference networks the same temporary HDF5 path. That can make the supposed reference read the newly generated solution.
+
+The required input \texttt{UnitTesting/\allowbreak{}singleVessel/\allowbreak{}singleVessel.\allowbreak{}xml} is absent from the inspected checkout. Other stored solution files are present.
+
+The test also uses an absolute threshold of 10.0 for pressure, flow, and area. These quantities have different units and numerical scales. That is not a suitable general accuracy contract.
+
+Do not weaken checks to get the port through. Establish independent source data and variable-specific tolerances.
+
+\subsection{27.3 Compare the smallest operations first}
+A sensible order is:
+
+
+\begin{enumerate}
+\item Wall area and compliance at selected valid pressures.
+
+
+\item Wave speed, impedances, and characteristic matrices.
+
+
+\item Predictor and corrector arrays for one vessel step.
+
+
+\item Boundary values and junction residuals.
+
+
+\item Circuit matrices, right-hand sides, and affine coefficients.
+
+
+\item The accepted combined vessel/circuit step.
+
+
+\item Short multi-step histories.
+
+
+\item Full representative runs and recording behavior.
+
+
+\end{enumerate}
+When a long trajectory differs, these small comparisons make the first error easier to locate.
+
+\subsection{27.4 Useful error measures}
+For corresponding values \(x,\widehat x\), absolute error is
+
+
+\begingroup\small
+\[
+e_{\rm abs}=|x-\widehat x|.
+\]
+\endgroup
+
+
+A scale-aware relative measure is
+
+
+\begingroup\small
+\[
+e_{\rm rel}
+=\frac{|x-\widehat x|}{\max(|x|,x_{\rm floor})}.
+\]
+\endgroup
+
+
+The floor prevents division by a value near zero.
+
+Root-mean-square error over \(M\) values is
+
+
+\begingroup\small
+\[
+{\rm RMSE}
+=\sqrt{\frac1M\sum_{j=1}^{M}(x_j-\widehat x_j)^2}.
+\]
+\endgroup
+
+
+Report maxima and timing shifts as well. Small average error can conceal a brief large error or a wrong valve event.
+
+\subsection{27.5 Conservation and interface checks}
+At a bifurcation, inspect
+
+
+\begingroup\small
+\[
+Q_1-Q_2-Q_3
+\]
+\endgroup
+
+
+and both total-pressure residuals.
+
+At an affine circuit interface, inspect
+
+
+\begingroup\small
+\[
+P_{\rm vessel}-(rQ_{\rm port}+H).
+\]
+\endgroup
+
+
+For stored volume over a step, compare the volume increment with the integrated inflow-minus-outflow under the same discrete method.
+
+For circuit matrices, inspect
+
+
+\begingroup\small
+\[
+\|\mathcal Mx-b\|.
+\]
+\endgroup
+
+
+A small linear-system residual proves that the assembled equations were solved accurately. It does not prove that the assembled equations have the intended signs.
+
+\subsection{27.6 Lifecycle checks}
+Especially valuable comparisons are:
+
+
+\begin{itemize}
+\item Repeating a coefficient probe leaves accepted circuit state unchanged.
+
+
+\item One accepted flow advances a capacitor exactly once.
+
+
+\item Current inductor flow becomes next accepted flow history.
+
+
+\item A controller runs at its documented stage and priority.
+
+
+\item A diode changes the next mode at the correct step.
+
+
+\item Shared downstream ports retain off-diagonal coupling.
+
+
+\item A recording-buffer rollover does not change the physical trajectory.
+
+
+\item The same initial state passed into a compiled function actually changes its output.
+
+
+\end{itemize}
+These detect errors that a one-step numerical solve alone can miss.
+
+\subsection{27.7 Preserve the evidence levels of netlist tests}
+The Python netlist project has equation tests, paired NumPy/JAX checks, captured C++ data, and specific trajectory comparisons.
+
+A captured matrix replay is not equivalent to a complete autonomous coupled trajectory. Existing support claims remain limited to their documented cases.
+
+Use the current topical guides and parity manifest. Historical benchmark or review notes must not override current source or be promoted into new broad support claims.
+
+Source: \href{/home/sadid/starfish/UnitTesting/unitTest_singleVessel.py}{STARFiSh regression code}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/NETLIST_SOLVER_DEVELOPER_GUIDE.md}{netlist verification guide}.
+
+\clearpage
+\section{28. A migration order that preserves understanding}
+\subsection{28.1 Agree on the feature manifest}
+For each feature, record:
+
+
+\begin{lstlisting}
+configuration name and example input
+current reachable implementation
+equations and time discretization
+parameters and their units
+required previous state
+outputs and their shapes
+failure behavior
+reference evidence and acceptance checks
+\end{lstlisting}
+Label a feature as working, source-present but unreachable, incomplete, or unverified. \textquotedblleft{}All features\textquotedblright{} should not hide those distinctions.
+
+\subsection{28.2 Stage 1: the environment and readable reference}
+Align the Python runtime with the chosen Python netlist package target. Record the actual dependency versions.
+
+Repair reference-file selection and establish a small independent vessel case. Retain the NumPy execution path.
+
+Deliverable: a reproducible baseline and an explicit supported-feature list.
+
+\subsection{28.3 Stage 2: pure wall and field functions}
+Extract area, compliance, wave speed, field updates, and characteristic calculations into functions with explicit inputs.
+
+Port one field scheme first. Preserve its exact coefficients, frozen values, and source terms.
+
+Deliverable: one-step arrays that can be compared directly.
+
+\subsection{28.4 Stage 3: a complete native-boundary vessel}
+Add a prescribed inflow and a native outlet model. Carry boundary state explicitly and record a bounded history.
+
+Deliverable: a complete reference/JAX vessel trajectory with matching output meaning.
+
+\subsection{28.5 Stage 4: Python netlist coupling}
+Start with a strictly recognized RCR. Use its existing probe/finalize functions and explicit port binding.
+
+Then add a generic supported circuit, active-mode handling, and the accepted-history lifecycle.
+
+Deliverable: a direct Python-to-Python coupled trajectory without the old worker path.
+
+\subsection{28.6 Stage 5: network junctions}
+Port links, bifurcations, and anastomoses using the selected baseline residuals and Jacobian policy.
+
+Deliverable: a branching-network trajectory and meaningful junction diagnostics.
+
+\subsection{28.7 Stage 6: heart, venous feedback, and controllers}
+Port each model's state transition and event timing. Reuse the Python netlist's supported controller contract where that is the appropriate owner.
+
+Deliverable: explicit state ownership and matched event/cycle/controller sequences.
+
+\subsection{28.8 Stage 7: global downstream coupling and advanced cases}
+Integrate shared downstream networks through the global relation or supported global solve.
+
+Do not replace a coupled circuit by independent loads. Treat combinations outside the Python netlist's validated profiles as additional integration work.
+
+Deliverable: multiport coupling evidence for the named supported cases.
+
+\subsection{28.9 Stage 8: ensembles and gradients}
+Batch compatible structures and expose intended numerical parameters dynamically.
+
+Add loss functions, gradient checks, and root/event policies after forward trajectories are understood.
+
+Deliverable: measured ensemble behavior and checked gradients for the explicitly supported differentiable subset.
+
+\subsection{28.10 Relative difficulty}
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Work} & \textbf{Relative difficulty} & \textbf{Main reason} \\
+\midrule
+\endfirsthead
+\textbf{Work} & \textbf{Relative difficulty} & \textbf{Main reason} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Pure wall formulas and simple algebra & Low & Direct numerical expressions \\
+Interpolation and sampled quadrature & Low to medium & Endpoint and shape compatibility \\
+Field schemes and characteristics & Medium & Exact discretization and indexing \\
+Circuit RCR adapter & Medium & Existing functions, new lifecycle binding \\
+Generic and multiport circuit adapter & Medium to high & Layout, modes, state, coupling \\
+Junction iterations & High & Nonlinear convergence and approximate Jacobians \\
+Heart/valve/venous transitions & High & Multiple histories and hard events \\
+Complete gradient support & High & Root derivatives, event sequences, parameter exposure \\
+Whole-application feature preservation & High & All of the above plus output and baseline repair \\
+\end{longtable}
+\endgroup
+The existing Python/JAX netlist reduces the work compared with the earlier C++-worker assumption. The remaining large task is the 1D solver's state and numerical execution design.
+
+A useful first milestone is a short float64 vessel simulation coupled to the existing Python RCR probe/finalize API, with independent reference output, an interface residual check, and a recording rollover. Estimate the remaining schedule after this example establishes the cost of state extraction and compatibility.
+
+\clearpage
+\section{29. Questions to ask while reading or changing a function}
+\subsection{29.1 Before translating a formula}
+
+\begin{itemize}
+\item What does each input mean physically?
+
+
+\item What are its units?
+
+
+\item Is it a total value or an increment?
+
+
+\item Is it from the old time, a predictor, or the accepted next time?
+
+
+\item Is a coefficient evaluated at the left point, right point, or a fixed reference?
+
+
+\item Is a vector entry a physical ID, a packed-array position, a matrix row, or a solution column?
+
+
+\end{itemize}
+\subsection{29.2 Before adding JAX compilation}
+
+\begin{itemize}
+\item Are all numerical values explicit inputs?
+
+
+\item Does the function change any object or external array?
+
+
+\item Do its branches return the same structure and shapes?
+
+
+\item Does it create an object array, variable-length list, or data-dependent array shape?
+
+
+\item Does it convert an unknown value to a Python float, bool, or NumPy array?
+
+
+\item Does it call file access or an external mutable manager?
+
+
+\end{itemize}
+\subsection{29.3 Before accepting a time step}
+
+\begin{itemize}
+\item Have repeated probes left history unchanged?
+
+
+\item Which candidate supplies the accepted pressure and flow?
+
+
+\item Does each circuit finalize once?
+
+
+\item Are controller observations and target values from the correct stage?
+
+
+\item Are valve and diode flags intended for this step or the next one?
+
+
+\item Are diagnostics associated with the same physical state that is recorded?
+
+
+\end{itemize}
+\subsection{29.4 Before claiming an optimization result}
+
+\begin{itemize}
+\item Is the selected physical model unchanged?
+
+
+\item Are grid and time-step choices fixed or explicitly included in the interpretation?
+
+
+\item Are trainable parameters actually passed dynamically?
+
+
+\item Are derivatives branchwise or valid across the requested parameter interval?
+
+
+\item Has the root solver converged?
+
+
+\item Are the loss terms scaled consistently?
+
+
+\item Is the result from the same input samples and observations as the baseline?
+
+
+\end{itemize}
+\clearpage
+\section{30. Guided exercises with answers}
+\subsection{30.1 Flow and speed}
+A vessel has area \(2\times10^{-4}\) m\textsuperscript{2} and flow \(4\times10^{-5}\) m\textsuperscript{3}/s. What is its mean velocity?
+
+Answer:
+
+
+\begingroup\small
+\[
+v=Q/A=0.2\ {\rm m/s}.
+\]
+\endgroup
+
+
+If area halves while flow stays fixed, velocity becomes 0.4 m/s.
+
+\subsection{30.2 A change in stiffness}
+Area and density remain fixed. Compliance is reduced by a factor of four. How does wave speed change?
+
+Answer: because \(c=\sqrt{A/(\rho C_A)}\), speed doubles.
+
+This conclusion holds for the stated fixed-area comparison. A full wall-parameter change can also change area.
+
+\subsection{30.3 Counting a grid}
+A 0.3 m vessel has seven evenly spaced nodes. How many intervals are there, and what is the spacing?
+
+Answer: six intervals, each 0.05 m.
+
+\subsection{30.4 Interpolation}
+A sampled flow is 2 at time 0 and 8 at time 3. What does linear interpolation give at time 1?
+
+Answer: the weight is \(1/3\), so the flow is 4.
+
+\subsection{30.5 A junction}
+A mother supplies \(8\times10^{-6}\) m\textsuperscript{3}/s. One daughter receives \(3\times10^{-6}\) m\textsuperscript{3}/s. What must the second receive for exact conservation?
+
+Answer: \(5\times10^{-6}\) m\textsuperscript{3}/s, with the stated positive-direction conventions.
+
+\subsection{30.6 A capacitor probe}
+Two calls ask for the affine coefficients using exactly the same accepted RCR state and parameters. Should the capacitor history advance?
+
+Answer: no. A probe reports a relationship. Finalization advances accepted history after a physical flow is selected.
+
+\subsection{30.7 A Python reference}
+Two objects both point to one NumPy array. One object changes an array entry. Does the other see it?
+
+Answer: yes, while they still share that mutable array.
+
+If one object instead rebinds its attribute to a newly returned JAX array, the other object's attribute does not automatically change.
+
+\subsection{30.8 Matrix indices}
+A pressure result is in solution column 7. The external flow equation is matrix row 11. Where does the unit-response right-hand side contain its one?
+
+Answer: row 11. Read the pressure response from solution column 7 after solving.
+
+\subsection{30.9 A diode threshold}
+Pressure difference is slightly below the opening threshold, but flow exceeds its threshold. Under the documented OR predicate, is the next diode state open?
+
+Answer: yes. Replacing OR with AND would change that answer.
+
+\subsection{30.10 A matching graph}
+A new JAX waveform plot looks like the old NumPy plot. Has feature preservation been established?
+
+Answer: no. Compare numerical arrays, units, output times, state transitions, conservation residuals, and failure behavior at appropriate scales.
+
+\clearpage
+\section{Appendix A. Symbol and terminology dictionary}
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Symbol or term} & \textbf{Meaning} \\
+\midrule
+\endfirsthead
+\textbf{Symbol or term} & \textbf{Meaning} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\(A\) & Vessel area \\
+\(A_s\) & Reference area parameter \\
+\(C_A\) & Area compliance \(dA/dP\) \\
+\(C_V\) & Volume compliance \(dV/dP\) \\
+\(P,P_{\rm ext},P_s\) & Fluid pressure, external pressure, reference pressure parameter \\
+\(Q,v\) & Volumetric flow and mean velocity \\
+\(\rho,\mu\) & Density and dynamic viscosity \\
+\(c\) & Pressure-wave speed \\
+\(Z_c,Z_\pm\) & Characteristic impedances \\
+\(\gamma,\delta\) & Profile exponent and momentum correction factor \\
+\(\Delta t,\Delta z\) & Time-step and grid spacing \\
+\(n,i,k\) & Usually physical time step, spatial index, nonlinear iteration \\
+\(N,N_t\) & Spatial node count and time-step count \\
+\(\mathsf R,\mathsf L\) & Characteristic coordinate transformations \\
+\(r_{ij}\) & Entry in the characteristic matrix \(\mathsf R\) \\
+\(\omega_\pm\) & Forward/backward characteristic coordinates \\
+\(R_{\rm res},R_p,R_d\) & Resistance, proximal resistance, distal resistance \\
+\(L_v\) & Inertance \\
+\(E_h,V_0\) & Chamber elastance and unstressed volume \\
+\(\xi\) & Valve opening state \\
+\(\mathcal M,x,b\) & Circuit matrix, unknown vector, known right-hand side \\
+\(e_j\) & Unit vector selecting equation row \(j\) \\
+\(r,H\) & Affine slope and intercept, called dp\_dq and Hop \\
+\(\sigma\) & STARFiSh-to-circuit physical flow sign \\
+\(h_p,h_q,h_V\) & Accepted pressure, flow, and volume history \\
+\(\theta\) & Parameter vector \\
+\(F,J\) & Residual and Jacobian, or a labelled loss where explicitly stated \\
+\(\mathbb E,\operatorname{Var}\) & Expected value and variance \\
+\(\psi_k,a_k\) & Polynomial basis function and its coefficient \\
+Discretization & Replacing continuous equations by finite updates \\
+Predictor & Trial intermediate future value \\
+Corrector & Calculation using the predictor to improve the update \\
+Topology & Which physical parts connect to which \\
+Static layout & Fixed index and structural metadata for a calculation \\
+State & Values that must be carried to determine the next step \\
+Accepted state & Values committed as the physical history for the next step \\
+Provisional state & A trial result that has not been accepted \\
+PyTree & Supported nested structure containing numerical leaves \\
+Tracer & JAX's representation of a numerical value during transformation \\
+JIT & Compilation of a numerical function \\
+vmap & Automatic transformation across a batch dimension \\
+Gradient & Derivatives of a scalar result with respect to its inputs \\
+Oracle/reference & Independent expected data used in comparison \\
+Parity & Agreement in defined behavior within stated tolerances \\
+\end{longtable}
+\endgroup
+\clearpage
+\section{Appendix B. STARFiSh source-reading map}
+Read the smallest relevant function rather than trying to understand a whole file at once.
+
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Topic} & \textbf{File and main locations} \\
+\midrule
+\endfirsthead
+\textbf{Topic} & \textbf{File and main locations} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Overall numerical run & \href{/home/sadid/starfish/SolverLib/class1DflowSolver.py}{class1DflowSolver.py}: constructor, initializeTimeVariables, initializeNumericalObjectList, MacCormack\_Field \\
+Interior field & \href{/home/sadid/starfish/SolverLib/classFields.py}{classFields.py}: F, MacCormackFlux, MacCormackMatrix \\
+Local matrices and characteristics & \href{/home/sadid/starfish/SolverLib/classSystemEquations.py}{classSystemEquations.py}: updateSystem and four updateLARL variants \\
+Junctions & \href{/home/sadid/starfish/SolverLib/classConnections.py}{classConnections.py}: Link, Bifurcation, Anastomosis, callNonLinear \\
+Boundary wrapper & \href{/home/sadid/starfish/SolverLib/classBoundarys.py}{classBoundarys.py}: prescribed conditions and endpoint writes \\
+Boundary formulas & \href{/home/sadid/starfish/NetworkLib/classBoundaryConditions.py}{classBoundaryConditions.py}: waveform, resistance, Windkessel, heart, and valve classes \\
+Wall laws & \href{/home/sadid/starfish/NetworkLib/classCompliance.py}{classCompliance.py}: area/compliance classes \\
+Geometry & \href{/home/sadid/starfish/NetworkLib/moduleGrids.py}{moduleGrids.py}: uniform, cone, constriction \\
+Vessel setup and derived values & \href{/home/sadid/starfish/NetworkLib/classVessel.py}{classVessel.py}: initializeForSimulation, waveSpeed, calcResistance \\
+Global setup/output & \href{/home/sadid/starfish/NetworkLib/classVascularNetwork.py}{classVascularNetwork.py}: initialization, getSolutionData, calculateNetworkVolume \\
+Local ODE methods & \href{/home/sadid/starfish/NetworkLib/ODESolver.py}{ODESolver.py}: ForwardEuler, RungeKutta4 \\
+Venous feedback & \href{/home/sadid/starfish/NetworkLib/classVenousPool.py}{classVenousPool.py}: pressureFromVolume and update methods \\
+Current local netlist algebra & \href{/home/sadid/starfish/NetworkLib/netlistInterface.py}{netlistInterface.py}: solve\_robin\_characteristic \\
+Current worker coordination & \href{/home/sadid/starfish/NetworkLib/netlistManager.py}{netlistManager.py}, \href{/home/sadid/starfish/UtilityLib/crimsonNetlistAdapter.py}{crimsonNetlistAdapter.py}: historical adapter replaced by target Python calls \\
+Buffer handling & \href{/home/sadid/starfish/UtilityLib/classRuntimeMemoryManager.py}{classRuntimeMemoryManager.py}: flushSolutionMemory \\
+Array allocation & \href{/home/sadid/starfish/UtilityLib/classStarfishBaseObject.py}{classStarfishBaseObject.py}: allocate and getSolutionMemory \\
+Wave processing & \href{/home/sadid/starfish/UtilityLib/processing.py}{processing.py}: wave splitting and extrema \\
+Calibration & \href{/home/sadid/starfish/NetworkLib/classMeasurements.py}{classMeasurements.py}: estimateCff \\
+UQ methods & \href{/home/sadid/starfish/VascularPolynomialChaosLib/classUqsaMethods.py}{classUqsaMethods.py}: regression, quadrature, specialized methods, Monte Carlo \\
+Sampling & \href{/home/sadid/starfish/VascularPolynomialChaosLib/classSampleManager.py}{classSampleManager.py}, \href{/home/sadid/starfish/VascularPolynomialChaosLib/classDistributionManager.py}{classDistributionManager.py} \\
+Batch execution & \href{/home/sadid/starfish/VascularPolynomialChaosLib/moduleBatchSimulationManager.py}{moduleBatchSimulationManager.py} \\
+Existing regression checks & \href{/home/sadid/starfish/UnitTesting/unitTest_singleVessel.py}{unitTest\_singleVessel.py}, \href{/home/sadid/starfish/UnitTesting/UT_singleVessel.py}{UT\_singleVessel.py} \\
+\end{longtable}
+\endgroup
+\clearpage
+\section{Appendix C. Python netlist source-reading map}
+The following files belong to the separate Python netlist project. Its current topical guides are authoritative for the support profile, not older dated reports.
+
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Need} & \textbf{Starting point} \\
+\midrule
+\endfirsthead
+\textbf{Need} & \textbf{Starting point} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Current documentation and scope & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/README.md}{docs index} \\
+Equations, matrix layout, lifecycle & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/NETLIST_SOLVER_DEVELOPER_GUIDE.md}{regular solver guide} \\
+Controller mathematics and timing & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/CONTROLLER_ARCHITECTURE_TEACHING_GUIDE.md}{controller guide} \\
+Global coupled circuits & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/docs/closed_loop_lifecycle.md}{closed-loop guide} \\
+Actual JAX matrix and affine API & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/NetlistCircuit_jax.py}{NetlistCircuit\_jax.py} \\
+Readable independent implementation & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/NetlistCircuit_reference.py}{NetlistCircuit\_reference.py} \\
+Simple actual coupling primitives & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/RCR_jax.py}{RCR\_jax.py}, \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/RCR_reference.py}{RCR\_reference.py} \\
+Strict RCR graph recognition and binding & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/RCR.py}{RCR.py} \\
+Host manager lifecycle & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/BoundaryConditionManager_jax.py}{BoundaryConditionManager\_jax.py} \\
+Pure trajectory/state examples & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/pureZeroDDriver_jax.py}{pureZeroDDriver\_jax.py} \\
+Explicit controller record types & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/ControllerProtocol_jax.py}{ControllerProtocol\_jax.py} \\
+Version requirements & \href{/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/pyproject.toml}{pyproject.toml} \\
+\end{longtable}
+\endgroup
+\clearpage
+\section{Appendix D. Current discrepancies and scope decisions to track}
+These are observations from source inspection, not a claim that every feature was executed.
+
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.49000\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{Observation} & \textbf{Porting consequence} \\
+\midrule
+\endfirsthead
+\textbf{Observation} & \textbf{Porting consequence} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Flux helper fixes its momentum-flux multiplier at one & Preserve it initially; separate a physical-coefficient change \\
+Matrix field multiplies m22 by a derivative of Q\textsuperscript{2}/A & Establish intended equation; do not silently substitute a textbook formula \\
+Flexible-junction Jacobian omits an area derivative term & Treat autodifferentiated Jacobians as a numerical change \\
+Cone geometry and resistance use different interpolated profiles & Preserve the current integral unless intentionally corrected \\
+Native Windkessel and netlist RCR use different time discretizations & Compare physical models and discrete trajectories separately \\
+Connection constructors force NonLinear & Do not claim selectable linear/stenosis support without activating and checking it \\
+Proposed grid correction is currently disabled & Do not change mesh selection inadvertently \\
+Windkessel DAE argument signatures differ from the general wrapper & Repair baseline support before parity claims \\
+HayashiEmpirical initialization uses undefined Amm & Resolve that path explicitly \\
+L\_network raises NotImplementedError & Completing it is new feature work \\
+mtStig2016 exits before its proposed implementation & Not a working geometry reference \\
+BackwardEuler expects an absent Newton module & Check support independently from Euler/RK4 \\
+Global volume adds venous volume inside the vessel loop & Establish the intended reported quantity before using it as an oracle \\
+Regression can read the generated file as its reference & Use independent frozen comparison data \\
+Regression input XML is missing & Repair the fixture \\
+Legacy UQ uses time.clock and old Chaospy APIs & Establish a modern-Python baseline separately \\
+A UQ branch contains an invalid-looking np.sort keyword call & Exercise and repair the named branch before claiming coverage \\
+Legacy visualization uses np.int & Modern dependency compatibility needs review \\
+Buffer indices are used in previous-step guesses & Preserve or explicitly improve rollover behavior \\
+STARFiSh defaults to Python 3.11; netlist package targets 3.14 & Align environments before direct package integration \\
+\end{longtable}
+\endgroup
+The phrase \textquotedblleft{}preserve all features\textquotedblright{} should identify which repaired or existing behavior is the reference. A combined bug fix and numerical port needs separate evidence for each intentional change.
+
+\clearpage
+\section{Appendix E. External references and further study}
+The source files above are the primary evidence for current implementation behavior. These official references explain the library mechanisms and APIs discussed in the guide.
+
+
+\begin{itemize}
+\item \href{https://docs.jax.dev/en/latest/101/arrays.html}{JAX arrays and NumPy-like operations}.
+
+
+\item \href{https://docs.jax.dev/en/latest/stateful-computations.html}{JAX stateful computations}.
+
+
+\item \href{https://docs.jax.dev/en/latest/tracing.html}{JAX tracing}.
+
+
+\item \href{https://docs.jax.dev/en/latest/pytrees.html}{JAX PyTrees}.
+
+
+\item \href{https://docs.jax.dev/en/latest/automatic-vectorization.html}{JAX automatic vectorization}.
+
+
+\item \href{https://docs.jax.dev/en/latest/automatic-differentiation.html}{JAX automatic differentiation}.
+
+
+\item \href{https://docs.jax.dev/en/latest/control-flow.html}{JAX control flow}.
+
+
+\item \href{https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html}{JAX scan}.
+
+
+\item \href{https://docs.jax.dev/en/latest/_autosummary/jax.lax.while_loop.html}{JAX while\_loop}.
+
+
+\item \href{https://docs.jax.dev/en/latest/101/default_dtypes.html}{JAX default dtypes and float64 mode}.
+
+
+\item \href{https://docs.jax.dev/en/latest/array_refs.html}{JAX mutable references}.
+
+
+\item \href{https://docs.jax.dev/en/latest/benchmarking.html}{JAX benchmarking}.
+
+
+\item \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html}{SciPy scalar newton/secant interface}.
+
+
+\item \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.integrate.simpson.html}{SciPy Simpson integration}.
+
+
+\item \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp2d.html}{SciPy interp2d removal}.
+
+
+\item \href{https://docs.jax.dev/en/latest/_autosummary/jax.scipy.interpolate.RegularGridInterpolator.html}{JAX RegularGridInterpolator}.
+
+
+\end{itemize}
+\clearpage
+\section{Appendix F. NumPy operation inventory and porting notes}
+The table below is generated from parsed executable call expressions in the inspected first-party Python packages and root entry points. It excludes comments and documentation strings. It includes source-present paths that may be inactive, incomplete, or unreachable.
+
+It does not count array operators, array instance methods, external library internals, or how often a call executes at runtime. A frequently called numerical kernel can matter more than hundreds of setup calls.
+
+
+\begingroup\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.32667\linewidth-2\tabcolsep\relax}}
+\toprule
+\textbf{NumPy operation} & \textbf{Call expressions} & \textbf{Porting note} \\
+\midrule
+\endfirsthead
+\textbf{NumPy operation} & \textbf{Call expressions} & \textbf{Porting note} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\texttt{numpy.\allowbreak{}abs} & 5 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}append} & 19 & Growing arrays in a traced loop needs redesign. \\
+\texttt{numpy.\allowbreak{}arange} & 6 & Keep output size known in compiled code. \\
+\texttt{numpy.\allowbreak{}arccos} & 1 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}arctan} & 5 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}argmax} & 1 & Hard index changes; guard endpoints in neighbor calculations. \\
+\texttt{numpy.\allowbreak{}argsort} & 1 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}array} & 110 & Use jnp.array for numerical data; function/object arrays require redesign. \\
+\texttt{numpy.\allowbreak{}asarray} & 7 & Use jnp.asarray inside kernels; avoid NumPy conversion of a tracer. \\
+\texttt{numpy.\allowbreak{}atleast\_\allowbreak{}1d} & 2 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}ceil} & 7 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}concatenate} & 2 & Use fixed-shape concatenation and preserve ordering. \\
+\texttt{numpy.\allowbreak{}copy} & 5 & Preserve the intended value; NumPy alias/view behavior changes. \\
+\texttt{numpy.\allowbreak{}cos} & 3 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}cross} & 8 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}cumsum} & 20 & Preserve axis and baseline conventions. \\
+\texttt{numpy.\allowbreak{}diff} & 4 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}divide} & 2 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}dot} & 52 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}empty} & 62 & Initialize scratch values explicitly; do not rely on uninitialized contents. \\
+\texttt{numpy.\allowbreak{}empty\_\allowbreak{}like} & 1 & Initialize scratch values explicitly; preserve dtype/shape. \\
+\texttt{numpy.\allowbreak{}exp} & 2 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}eye} & 4 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}flipud} & 1 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}floor} & 3 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}hstack} & 1 & Use fixed shapes and preserve axis meaning. \\
+\texttt{numpy.\allowbreak{}int} & 1 & Legacy alias: use a deliberate integer type or host int. \\
+\texttt{numpy.\allowbreak{}interp} & 16 & Use jnp.interp; preserve coordinates, endpoints, and shape. \\
+\texttt{numpy.\allowbreak{}linalg.\allowbreak{}inv} & 1 & Initially preserve meaning; evaluate a linear-solve alternative separately. \\
+\texttt{numpy.\allowbreak{}linalg.\allowbreak{}norm} & 10 & Preserve selected norm and axes. \\
+\texttt{numpy.\allowbreak{}linalg.\allowbreak{}solve} & 1 & Use jnp.linalg.solve with matching matrices and float64. \\
+\texttt{numpy.\allowbreak{}linspace} & 64 & Keep sample count static; preserve endpoint inclusion. \\
+\texttt{numpy.\allowbreak{}log} & 12 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}max} & 72 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}mean} & 14 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}min} & 66 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}mod} & 1 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}ones} & 31 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}ones\_\allowbreak{}like} & 9 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}percentile} & 2 & Use JAX or host statistics; preserve quantile definition. \\
+\texttt{numpy.\allowbreak{}repeat} & 12 & Output length must match the compiled shape. \\
+\texttt{numpy.\allowbreak{}round} & 2 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}savetxt} & 2 & Keep file output on host arrays outside compiled execution. \\
+\texttt{numpy.\allowbreak{}seterr} & 1 & Replace with explicit diagnostics and an error policy. \\
+\texttt{numpy.\allowbreak{}shape} & 4 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}sign} & 4 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}sin} & 116 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}size} & 1 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}sort} & 1 & Use jnp.sort; repair the existing invalid keyword-call path. \\
+\texttt{numpy.\allowbreak{}sqrt} & 30 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}sum} & 28 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}vstack} & 5 & Use fixed shapes; data-dependent growth needs redesign. \\
+\texttt{numpy.\allowbreak{}where} & 4 & Distinguish dynamic index results from fixed-shape selection. \\
+\texttt{numpy.\allowbreak{}zeros} & 88 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\texttt{numpy.\allowbreak{}zeros\_\allowbreak{}like} & 10 & Numerical JAX counterpart; preserve dtype, axes, shape, and domain. \\
+\end{longtable}
+\endgroup
+Inventory total: \textbf{942 call expressions across 55 distinct APIs}. An API mapping does not include the state-ownership, lifecycle, and control-flow work explained in the chapters.
+
+
+\end{document}

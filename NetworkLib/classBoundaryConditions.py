@@ -1351,13 +1351,13 @@ class Netlist(BoundaryConditionType2):
     """
     Boundary profile - type 2
 
-    Netlist interface boundary condition. The first implementation supports a
-    constant-coefficient netlist law for testing:
+    Netlist interface boundary condition. Optional constant coefficients can
+    be supplied for testing:
 
         P = Rtilde * Q + S
 
-    Later, Rtilde and S should come from the CRIMSON netlist adapter as
-    (dp_dq, Hop).
+    Otherwise the standalone CRIMSON NumPy/reference adapter supplies
+    (dp_dq, Hop), located through the top-level netlist_config.py file.
     """
 
     def __init__(self):

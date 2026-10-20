@@ -167,8 +167,9 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
         flow_solver.solve()
         time_solver_solve = time.perf_counter() - time_solver_solve_start
     finally:
-        # QUIT flushes buffered CRIMSON histories and releases the isolated
-        # Python 2/PETSc worker on both successful and failed simulations.
+        # Flush accepted NumPy netlist histories on success and failure.
+        # The retained C++ adapter uses this same hook to send QUIT during
+        # explicit backend-comparison validation.
         simulation_failed = sys.exc_info()[0] is not None
         try:
             netlist_manager.close()
@@ -176,7 +177,7 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
             if not simulation_failed:
                 raise
             logger.exception(
-                "Failed to close the CRIMSON worker while handling an earlier "
+                "Failed to close the netlist adapter while handling an earlier "
                 "simulation error."
             )
 
