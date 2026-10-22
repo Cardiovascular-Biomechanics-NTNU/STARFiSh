@@ -4,11 +4,10 @@ The circuit equations live in netlist_py, located by ../netlist_config.py.
 This module owns STARFiSh surface bindings, timestep acceptance, and output.
 It imports no JAX, C++, MPI, PETSc, or Python-2 runtime.
 
-For compatibility with STARFiSh's retained C++ worker, sorted physical surface
-IDs map to XML circuitIndex 1..N and controllers run AFTER circuit acceptance.
-That controller phase is intentional: netlist_py's standalone ordinary 0D
-driver uses a different, pre-solve controller phase. No replacement domain is
-created here. All circuit values and exchanged P/Q must use consistent SI
+Sorted physical surface IDs map to XML circuitIndex 1..N. Controllers run once
+at timestep initialization, following netlist_py's standalone 0D driver. An
+explicit legacy_post_finalize profile is retained for old C++ comparisons.
+No replacement domain is created here. All values must use consistent SI
 units (Pa, m^3/s, m^3); no implicit unit conversion is performed.
 """
 
@@ -82,7 +81,10 @@ class NetlistPyAdapter:
     """One NumPy circuit manager per STARFiSh simulation, with fixed dt."""
 
     def __init__(self, netlist_xml, hstep=1, alfi=1.0, delt=None,
-                 surface_ids=None, output_directory=None):
+                 surface_ids=None, output_directory=None, controller_phase="iter_init"):
+        if controller_phase not in ("iter_init", "legacy_post_finalize"):
+            raise ValueError("unknown netlist controller lifecycle profile")
+        self.controller_phase = controller_phase
         self.netlist_xml = Path(netlist_xml).expanduser().resolve()
         self.surface_ids = _surface_ids(surface_ids or [])
         self.hstep = int(hstep)
@@ -276,12 +278,28 @@ class NetlistPyAdapter:
         if self._schedule is None:
             return
         by_slot = {bc.index: (surface_id, bc) for surface_id, bc in self._bcs.items()}
-        inputs = {}
-        for spec in (*self._schedule.python_controllers, *self._schedule.non_python_controllers):
-            surface_id, bc = by_slot[spec.target_binding.boundary_condition_index]
-            inputs[spec.name] = self._controller_inputs(bc, self._history[surface_id][-1], time)
+        inputs, runtimes = {}, []
+        for specs, group in ((self._schedule.python_controllers, self._controller_state.python_runtime),
+                             (self._schedule.non_python_controllers, self._controller_state.non_python_runtime)):
+            refreshed = []
+            for spec, runtime in zip(specs, group):
+                binding = spec.target_binding
+                surface_id, bc = by_slot[binding.boundary_condition_index]
+                field, slot = {
+                    "component_parameter": ("component_parameter_values", "runtime_parameter_array_index"),
+                    "fixed_flow": ("prescribed_flow_values", "prescribed_flow_array_index"),
+                    "fixed_pressure": ("prescribed_pressure_values", "prescribed_pressure_array_index"),
+                    "unstressed_volume": ("volume_unstressed_values", "pressure_chamber_volume_index"),
+                }[binding.target_kind]
+                position = getattr(binding.target, slot)
+                current = np.asarray(getattr(bc, field)[position:position+1]).copy()
+                refreshed.append(runtime._replace(current_target_values=current))
+                inputs[spec.name] = self._controller_inputs(bc, self._history[surface_id][-1], time)
+            runtimes.append(tuple(refreshed))
+        manager_state = self._controller_state._replace(
+            python_runtime=runtimes[0], non_python_runtime=runtimes[1])
         proposed = self._control_api.update_boundary_condition_control_systems(
-            self._schedule, self._controller_state, inputs)
+            self._schedule, manager_state, inputs)
         arrays = {bc.index: self._control_api.AppliedControllerTargets(
             bc.component_parameter_values, bc.volume_unstressed_values,
             bc.prescribed_flow_values, bc.prescribed_pressure_values)
@@ -302,6 +320,12 @@ class NetlistPyAdapter:
         if self._active_timestep is not None or timestep != self._last_finalized + 1:
             raise RuntimeError("netlist timesteps must start and finalize consecutively once")
         self._manager.initialise_lpn_at_start_of_timestep_netlist()
+        if self.controller_phase == "iter_init":
+            try:
+                self._update_controllers(timestep * self.delt)
+            except Exception:
+                self._failed = True
+                raise
         self._active_timestep = timestep
 
     def start_timestep_and_status(self, timestep, time, dt):
@@ -391,11 +415,12 @@ class NetlistPyAdapter:
         self._pending.clear()
         self._last_finalized = timestep
         self._active_timestep = None
-        try:
-            self._update_controllers((timestep + 1) * self.delt if time is None else time)
-        except Exception:
-            self._failed = True
-            raise
+        if self.controller_phase == "legacy_post_finalize":
+            try:
+                self._update_controllers((timestep + 1) * self.delt if time is None else time)
+            except Exception:
+                self._failed = True
+                raise
 
     def close(self):
         """Write initial plus accepted states; never accept a pending trial."""

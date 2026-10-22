@@ -216,19 +216,49 @@ class Boundary(cSBO.StarfishBaseObject):
         #calculate the dp and dq using given boundaryConditions of type 2
         dPQ_calc,dBloodVolumen = self.omegaFunction(_omega_field, duPrescribed, R, L, currentMemoryIndex, currentTimeStep, dt, P[position], Q[position], A[position],Z1, Z2)
 
-        # calculate new values for p and q
-        P_calc = dPQ_calc[0]+ P[position]
-        Q_calc = dPQ_calc[1]+ Q[position]
+        self.apply_boundary_result(self.prepare_boundary_result(dPQ_calc, dBloodVolumen))
 
-        # check new p value
-        if P_calc < 0:
-            raise ValueError("{} calculated negative pressure P_calc = {} at time {} (n {},dt {})".format(self.name, P_calc, currentTimeStep*dt,currentTimeStep,dt))
-            #exit()
+    def prepare_netlist_packet(self, surface_id, flow_sign):
+        """Copy a current-step characteristic without writing any endpoint."""
+        from NetworkLib.netlistCoupling import CharacteristicPacket
+        if self.bcType1 != []:
+            raise ValueError("a grouped Netlist endpoint cannot also prescribe a Type 1 input")
+        memory, step = self.currentMemoryIndex[0], self.currentTimeStep[0]
+        p, q, a = self.P[memory], self.Q[memory], self.A[memory]
+        _, transform, _, _, _, known = self.systemEquation.updateLARL(p, q, a, self.position)
+        return CharacteristicPacket(int(surface_id), self.position, flow_sign, int(step), int(memory),
+            self.dt, float(p[self.position]), float(q[self.position]), float(a[self.position]),
+            transform, float(known))
 
-        # calculate new value for the area
-        A_calc = A[position] # assign old value
-        if self.rigidArea == False:
-            A_calc =  self.A_nID([P_calc],position)
+    def prepare_netlist_result(self, packet, increment, omega):
+        if (packet.timestep, packet.memory_index, packet.dt) != (
+                self.currentTimeStep[0], self.currentMemoryIndex[0], self.dt):
+            raise RuntimeError("closed-loop characteristic packet is stale")
+        blood = packet.transform[1] * omega
+        if self.position == -1:
+            blood = blood[::-1].copy()
+        return self.prepare_boundary_result(increment, blood)
+
+    def prepare_boundary_result(self, increment, blood_volume):
+        """Validate P/Q/A for one endpoint without modifying solution storage."""
+        memory, step = self.currentMemoryIndex[0], self.currentTimeStep[0]
+        position = self.position
+        P, Q, A = self.P[memory], self.Q[memory], self.A[memory]
+        P_calc = increment[0] + P[position]
+        Q_calc = increment[1] + Q[position]
+        if not np.isfinite([P_calc, Q_calc]).all() or P_calc < 0:
+            raise ValueError("{} calculated invalid boundary pressure/flow at timestep {}".format(self.name, step))
+        A_calc = A[position] if self.rigidArea else self.A_nID([P_calc], position)
+        if np.asarray(A_calc).size != 1 or not np.isfinite(A_calc).all() or np.any(np.asarray(A_calc) <= 0):
+            raise ValueError("{} calculated invalid boundary area at timestep {}".format(self.name, step))
+        return (step, memory, float(P_calc), float(Q_calc), float(np.asarray(A_calc).item()),
+                np.array(blood_volume, copy=True))
+
+    def apply_boundary_result(self, result):
+        currentTimeStep, currentMemoryIndex, P_calc, Q_calc, A_calc, dBloodVolumen = result
+        if (currentTimeStep, currentMemoryIndex) != (self.currentTimeStep[0], self.currentMemoryIndex[0]):
+            raise RuntimeError("cannot apply a stale boundary result")
+        position, dt = self.position, self.dt
 
         # apply values to solution array
         self.P[currentMemoryIndex+1][position] = P_calc

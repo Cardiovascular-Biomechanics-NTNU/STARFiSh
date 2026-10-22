@@ -1,0 +1,41 @@
+{
+  "source_sha256": {
+    "/home/sadid/starfish/examples/cr_sf_tutorial_demo/heart_model/input.xml": "0f57de8f50a976ed159ec836ae68acc07e08f432752db9e7cb07f1b0c22d9897",
+    "/home/sadid/starfish/examples/cr_sf_tutorial_demo/heart_model/netlist_surfaces.xml": "ab813828bc6fc272dbcdfa84b77bdb3b28149cd73c040ab86c0b79b7fee1bd17",
+    "/home/sadid/starfish/examples/cr_sf_tutorial_demo/heart_model/bloodLossObserver.py": "ea1c37188bd00d6268a365c8a27b736317a40f95ada87d3ad49e773ca62340fe",
+    "/home/sadid/starfish/examples/cr_sf_tutorial_demo/heart_model/bloodLossObserver_reference.py": "3c0d8c78e88db4a62431e1a796a88ab62047d2122d5495e93c0d4435e7169f90",
+    "/home/sadid/starfish/examples/cr_sf_tutorial_demo/heart_model/elastanceController_reference.py": "8ae0344d5a5bb7f86b43a8da6b6c8367ee646cb45e305746eb63513ce02090c6",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/tests/05-HeartModel-ClosedLoop/2.SimFiles-Benchmark/netlist_closed_loop_downstream.xml": "0bf044e924b25676f1047c706793ad1e80f1d2d5d6a90fe0a526ccfb6214d289",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/tests/05-HeartModel-ClosedLoop/2.SimFiles-Benchmark/solver.inp": "8ffea09650de3ce736524e2a79fff334f9890766e4061c7cfb4175a325e5e97a",
+    "/home/sadid/starfish/ext/tests/closed_loop_heart/elastanceController.py": "5045c9260a458a28e268408fe09883e236fae547c4f8eddc3e654f5703a0e974"
+  },
+  "duration_s": 60.0,
+  "units": "Pa, m^3/s, m^3, seconds",
+  "physical_surface_map": {
+    "0": "heart / proximal vessel 1",
+    "1": "RCR / distal vessel 2",
+    "2": "RCR / distal vessel 4",
+    "3": "external hemorrhage / distal vessel 5"
+  },
+  "return_surface_ids": [
+    0,
+    1,
+    2
+  ],
+  "independent_loss_surface_ids": [
+    3
+  ],
+  "return_parameters": {
+    "R1_pa_s_m3": 15000000.0,
+    "R2_pa_s_m3": 1000000.0,
+    "C_m3_pa": 2e-07
+  },
+  "changes": [
+    "preserve original 1D vessels, CFL, fluid, SI heart and feedback law",
+    "replace fixed heart filling and systemic tail reservoirs with shared return",
+    "use source 0D venous R/R/C topology, convert mm^3 units to m^3",
+    "initialize return at original fixed filling pressure 533.2 Pa",
+    "ConstantPressure initialization; 128 MB runtime buffer",
+    "new native controller uses linear CSV diagnostics; scalar law unchanged"
+  ]
+}

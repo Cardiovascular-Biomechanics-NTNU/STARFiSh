@@ -1,0 +1,11 @@
+{
+  "source": "docs/netlist_closed_loop_implementation_plan.md",
+  "source_sha256": "ba9ac3edd9673436d538a9dfea7fb3996052cb7cf8edec5a969311e6c355df7e",
+  "pdf": "docs/netlist_closed_loop_implementation_plan.pdf",
+  "pdf_bytes": 510193,
+  "display_math_blocks": 45,
+  "inline_math_expressions": 12,
+  "mathematical_code_spans_typeset": 79,
+  "engine": "pdflatex / Computer Modern mathematics",
+  "rebuild": "python3 -B docs/netlist_closed_loop_assets/build_pdf.py"
+}

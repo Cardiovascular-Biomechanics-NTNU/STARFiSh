@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the retained C++ worker and the production NumPy netlist adapter.
+"""Compare the retained C++ worker and the explicit legacy NumPy profile.
 
 Validation only: this is the sole place that selects the old C++ backend.
 Circuit replay supplies the same explicit external Q (or P when blocked)
@@ -91,7 +91,7 @@ def replay(name, source, directory, worker, steps, reverse=False, diode=False,
     old = CrimsonNetlistAdapter(case / "netlist_surfaces.xml", delt=dt, alfi=alfi,
         surface_ids=surfaces, output_directory=cpp_dir, worker_executable=worker)
     new = NetlistPyAdapter(case / "netlist_surfaces.xml", delt=dt, alfi=alfi,
-        surface_ids=surfaces, output_directory=ref_dir)
+        surface_ids=surfaces, output_directory=ref_dir, controller_phase="legacy_post_finalize")
     errors = {"slope": 0.0, "pressure": 0.0}
     old_trace, new_trace, modes = [], [], set()
     previous_modes, transition_flag_differences = {}, 0
@@ -194,7 +194,9 @@ def one_d_case(name, source, directory, worker, duration, resistor=False, heart=
         # Validation-only substitution. Production always constructs NumPy.
         def cpp_factory(*args, **kwargs):
             return CrimsonNetlistAdapter(*args, worker_executable=worker, **kwargs)
-        selection = patch.object(adapter_module, "NetlistPyAdapter", cpp_factory) if label == "cpp" else nullcontext()
+        from UnitTesting.netlist_legacy_profile import LegacyPostFinalizeAdapter
+        selection = patch.object(adapter_module, "NetlistPyAdapter",
+            cpp_factory if label == "cpp" else LegacyPostFinalizeAdapter)
         with (selection, (target / "solver.log").open("w") as log,
               redirect_stdout(log), redirect_stderr(log)):
             solver.run_case(str(case / "input.xml"), str(target), "comparison", "001",
@@ -272,6 +274,7 @@ def main():
             results.append(result)
             print(name + ": " + result["status"], flush=True)
     report = {"python": sys.version, "numpy": np.__version__, "netlist_source": str(netlist),
+              "controller_phase": "legacy_post_finalize (historical C++ compatibility; production uses iter_init)",
               "worker": str(args.worker.resolve()), "rtol": RTOL, "atol": ATOL,
               "results": results, "passed": all(r["status"] == "passed" for r in results)}
     report_path = output / "comparison.json"

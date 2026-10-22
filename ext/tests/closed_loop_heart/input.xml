@@ -1,0 +1,215 @@
+<?xml version='1.0' encoding='utf-8'?>
+<vascularNetwork id="xxx" version="4.3">
+  <simulationContext>
+    <description>1D valved heart, systemic beds, venous return and independent hemorrhage drain; SI</description>
+    <totalTime unit="s">60.0</totalTime>
+    <CFL>0.1</CFL>
+    <timeSaveBegin unit="s">0.0</timeSaveBegin>
+    <minSaveDt unit="s">-1.0</minSaveDt>
+    <maxMemory unit="MB">128.0</maxMemory>
+    <gravitationalField>False</gravitationalField>
+    <gravityConstant unit="m s-2">-9.81</gravityConstant>
+  </simulationContext>
+  <solverCalibration>
+    <solvingSchemeField>MacCormack_Flux</solvingSchemeField>
+    <rigidAreas>False</rigidAreas>
+    <simplifyEigenvalues>False</simplifyEigenvalues>
+    <riemannInvariantUnitBase>Pressure</riemannInvariantUnitBase>
+    <automaticGridAdaptation>True</automaticGridAdaptation>
+  </solverCalibration>
+  <initialisationControls>
+    <initialsationMethod>ConstantPressure</initialsationMethod>
+    <initMeanFlow unit="m3 s-1">0.0</initMeanFlow>
+    <initMeanPressure unit="Pa">13332.0</initMeanPressure>
+    <estimateWindkesselCompliance>No</estimateWindkesselCompliance>
+    <compPercentageWK3>0.2</compPercentageWK3>
+    <compPercentageTree>0.8</compPercentageTree>
+    <compTotalSys unit="m3 Pa-1">4.895587352e-08</compTotalSys>
+  </initialisationControls>
+  <globalFluid>
+    <my unit="Pa s">0.004</my>
+    <rho unit="kg m-3">1060.0</rho>
+    <gamma>2.0</gamma>
+  </globalFluid>
+  <externalStimuli />
+  <communicators />
+  <boundaryConditions>
+    <boundaryCondition vesselId="4">
+      <_Netlist>
+        <surfaceId>2</surfaceId>
+        <flowSign>1.0</flowSign>
+        <Rtilde unit="Pa s m-3">None</Rtilde>
+        <S unit="Pa">0.0</S>
+      </_Netlist>
+    </boundaryCondition>
+    <boundaryCondition vesselId="5">
+      <_Netlist>
+        <surfaceId>3</surfaceId>
+        <flowSign>1.0</flowSign>
+        <Rtilde unit="Pa s m-3">None</Rtilde>
+        <S unit="Pa">0.0</S>
+      </_Netlist>
+    </boundaryCondition>
+    <boundaryCondition vesselId="2">
+      <_Netlist>
+        <surfaceId>1</surfaceId>
+        <flowSign>1.0</flowSign>
+        <Rtilde unit="Pa s m-3">None</Rtilde>
+        <S unit="Pa">0.0</S>
+      </_Netlist>
+    </boundaryCondition>
+    <boundaryCondition vesselId="1">
+      <Netlist>
+        <surfaceId>0</surfaceId>
+        <flowSign>-1.0</flowSign>
+        <Rtilde unit="Pa s m-3">None</Rtilde>
+        <S unit="Pa">0.0</S>
+      </Netlist>
+    </boundaryCondition>
+  </boundaryConditions>
+  <randomInputManager />
+  <measurementRoutine />
+  <vessels>
+    <vessel Id="1" name="Vessel1">
+      <topology>
+        <leftDaughter>2</leftDaughter>
+        <rightDaughter>3</rightDaughter>
+        <angleYMother unit="rad">0.0</angleYMother>
+      </topology>
+      <geometry>
+        <geometryType>uniform</geometryType>
+        <length unit="m">0.5</length>
+        <radiusProximal unit="m">0.005</radiusProximal>
+        <radiusDistal unit="m">0.005</radiusDistal>
+        <N>50</N>
+      </geometry>
+      <compliance>
+        <complianceType>Laplace</complianceType>
+        <constantCompliance>False</constantCompliance>
+        <externalPressure unit="Pa">0.0</externalPressure>
+        <Ps unit="Pa">0.0</Ps>
+        <As unit="m2">None</As>
+        <betaLaplace unit="Pa m-1">800000.0</betaLaplace>
+      </compliance>
+      <fluid>
+        <applyGlobalFluid>True</applyGlobalFluid>
+        <my unit="Pa s">0.004</my>
+        <rho unit="kg m-3">1060.0</rho>
+        <gamma>2.0</gamma>
+      </fluid>
+    </vessel>
+    <vessel Id="2" name="Vessel2">
+      <topology>
+        <leftDaughter>None</leftDaughter>
+        <rightDaughter>None</rightDaughter>
+        <angleYMother unit="rad">0.0</angleYMother>
+      </topology>
+      <geometry>
+        <geometryType>uniform</geometryType>
+        <length unit="m">0.5</length>
+        <radiusProximal unit="m">0.0028</radiusProximal>
+        <radiusDistal unit="m">0.0028</radiusDistal>
+        <N>10</N>
+      </geometry>
+      <compliance>
+        <complianceType>Laplace</complianceType>
+        <constantCompliance>False</constantCompliance>
+        <externalPressure unit="Pa">0.0</externalPressure>
+        <Ps unit="Pa">0.0</Ps>
+        <As unit="m2">None</As>
+        <betaLaplace unit="Pa m-1">800000.0</betaLaplace>
+      </compliance>
+      <fluid>
+        <applyGlobalFluid>True</applyGlobalFluid>
+        <my unit="Pa s">0.004</my>
+        <rho unit="kg m-3">1060.0</rho>
+        <gamma>2.0</gamma>
+      </fluid>
+    </vessel>
+    <vessel Id="3" name="Vessel3">
+      <topology>
+        <leftDaughter>4</leftDaughter>
+        <rightDaughter>5</rightDaughter>
+        <angleYMother unit="rad">0.0</angleYMother>
+      </topology>
+      <geometry>
+        <geometryType>uniform</geometryType>
+        <length unit="m">0.35</length>
+        <radiusProximal unit="m">0.0028</radiusProximal>
+        <radiusDistal unit="m">0.0028</radiusDistal>
+        <N>10</N>
+      </geometry>
+      <compliance>
+        <complianceType>Laplace</complianceType>
+        <constantCompliance>False</constantCompliance>
+        <externalPressure unit="Pa">0.0</externalPressure>
+        <Ps unit="Pa">0.0</Ps>
+        <As unit="m2">None</As>
+        <betaLaplace unit="Pa m-1">800000.0</betaLaplace>
+      </compliance>
+      <fluid>
+        <applyGlobalFluid>True</applyGlobalFluid>
+        <my unit="Pa s">0.004</my>
+        <rho unit="kg m-3">1060.0</rho>
+        <gamma>2.0</gamma>
+      </fluid>
+    </vessel>
+    <vessel Id="4" name="Vessel4_RightContinuation">
+      <topology>
+        <leftDaughter>None</leftDaughter>
+        <rightDaughter>None</rightDaughter>
+        <angleYMother unit="rad">0.0</angleYMother>
+      </topology>
+      <geometry>
+        <geometryType>uniform</geometryType>
+        <length unit="m">0.25</length>
+        <radiusProximal unit="m">0.0028</radiusProximal>
+        <radiusDistal unit="m">0.0028</radiusDistal>
+        <N>10</N>
+      </geometry>
+      <compliance>
+        <complianceType>Laplace</complianceType>
+        <constantCompliance>False</constantCompliance>
+        <externalPressure unit="Pa">0.0</externalPressure>
+        <Ps unit="Pa">0.0</Ps>
+        <As unit="m2">None</As>
+        <betaLaplace unit="Pa m-1">800000.0</betaLaplace>
+      </compliance>
+      <fluid>
+        <applyGlobalFluid>True</applyGlobalFluid>
+        <my unit="Pa s">0.004</my>
+        <rho unit="kg m-3">1060.0</rho>
+        <gamma>2.0</gamma>
+      </fluid>
+    </vessel>
+    <vessel Id="5" name="Vessel5_BleedStump">
+      <topology>
+        <leftDaughter>None</leftDaughter>
+        <rightDaughter>None</rightDaughter>
+        <angleYMother unit="rad">0.0</angleYMother>
+      </topology>
+      <geometry>
+        <geometryType>uniform</geometryType>
+        <length unit="m">0.05</length>
+        <radiusProximal unit="m">0.0008</radiusProximal>
+        <radiusDistal unit="m">0.0008</radiusDistal>
+        <N>6</N>
+      </geometry>
+      <compliance>
+        <complianceType>Laplace</complianceType>
+        <constantCompliance>False</constantCompliance>
+        <externalPressure unit="Pa">0.0</externalPressure>
+        <Ps unit="Pa">0.0</Ps>
+        <As unit="m2">None</As>
+        <betaLaplace unit="Pa m-1">800000.0</betaLaplace>
+      </compliance>
+      <fluid>
+        <applyGlobalFluid>True</applyGlobalFluid>
+        <my unit="Pa s">0.004</my>
+        <rho unit="kg m-3">1060.0</rho>
+        <gamma>2.0</gamma>
+      </fluid>
+    </vessel>
+  </vessels>
+  <venousPool />
+</vascularNetwork>

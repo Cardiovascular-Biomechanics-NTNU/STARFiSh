@@ -169,6 +169,16 @@ target_link_libraries(
     ${CRIMSON_DEPS}/boost_1_74/lib/libboost_thread.so
 )
 
+# Separate closed-loop validation executable. Preserve the old worker sources
+# and link the same native CRIMSON/PETSc dependencies without changing runtime
+# production selection in Starfish.
+add_executable(crimson_closed_loop_validation_worker EXCLUDE_FROM_ALL ClosedLoopValidationWorker.cpp)
+target_compile_features(crimson_closed_loop_validation_worker PRIVATE cxx_std_14)
+target_compile_definitions(crimson_closed_loop_validation_worker PRIVATE PETSC_USE_REAL_SCALAR)
+target_compile_options(crimson_closed_loop_validation_worker PRIVATE ${STARFISH_OPTIMIZATION_FLAGS})
+get_target_property(STARFISH_NETLIST_VALIDATION_LIBRARIES crimson_netlist_worker LINK_LIBRARIES)
+target_link_libraries(crimson_closed_loop_validation_worker PRIVATE ${STARFISH_NETLIST_VALIDATION_LIBRARIES})
+
 # 6. Build the Python module from your Bridge files ONLY
 # We do NOT include .cxx files here because we link the .a libs instead
 nanobind_add_module(crimson_starfish_bridge 

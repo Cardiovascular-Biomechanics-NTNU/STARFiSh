@@ -41,15 +41,53 @@ def save_json(path, value):
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
 
 
-def worker_run(source, backend, target):
+def worker_run(source, backend, target, profile=False, diagnostics=False):
     """A fresh process isolates singleton managers and backend selection."""
     import solver
     import SolverLib.class1DflowSolver as flow_module
     import UtilityLib.netlistPyAdapter as adapter_module
+    import UtilityLib.netlistClosedLoopPyAdapter as closed_adapter_module
 
     result = {"backend": backend, "status": "running", "input": str(source),
               "wall_seconds": None, "initialization_seconds": None,
               "solve_seconds": None, "netlist_calls": {}, "netlist_seconds": 0.0}
+    profiler = None
+    if profile:
+        if backend == "cpp":
+            # This environment's monitoring-based cProfile captures events
+            # from the persistent reader thread in the same stack. Use the
+            # sys.setprofile-based main-thread profiler for this backend.
+            import profile as profile_module
+            profiler = profile_module.Profile(timer=time.perf_counter)
+            result["profile_engine"] = "profile.Profile(perf_counter), main thread"
+        else:
+            import cProfile
+            profiler = cProfile.Profile()
+            result["profile_engine"] = "cProfile.Profile, single-thread NumPy path"
+    if diagnostics:
+        import resource
+        usage_before = (resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN))
+        result["worker_requests"] = {}
+        result["launched_children"] = []
+
+    def measured_popen(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        command = args[0] if args else kwargs.get("args", [])
+        result["launched_children"].append({"pid": process.pid,
+            "executable": str(command[0]) if isinstance(command, (list, tuple)) else str(command)})
+        return process
+
+    def measured_send(client, command, expected_prefix):
+        started = time.perf_counter()
+        try:
+            return original_send(client, command, expected_prefix)
+        finally:
+            elapsed = time.perf_counter() - started
+            key = command.split(None, 1)[0]
+            record = result["worker_requests"].setdefault(key, {"calls": 0, "seconds": 0., "max_seconds": 0.})
+            record["calls"] += 1
+            record["seconds"] += elapsed
+            record["max_seconds"] = max(record["max_seconds"], elapsed)
     solver._configure_logging(str(target))
     logger = logging.getLogger("starfish")
     # Suppress per-step progress on disk; retain INFO configuration and timings.
@@ -58,11 +96,24 @@ def worker_run(source, backend, target):
         handler.setLevel(logging.INFO)
     original_solver = flow_module.FlowSolver
     original_adapter = adapter_module.NetlistPyAdapter
+    original_closed_adapter = closed_adapter_module.NetlistClosedLoopPyAdapter
     if backend == "cpp":
         from UtilityLib.crimsonNetlistAdapter import CrimsonNetlistAdapter
         selected_adapter = CrimsonNetlistAdapter
+        from UnitTesting.closed_loop_cpp_reference import CppClosedLoopAdapter
+        selected_closed_adapter = CppClosedLoopAdapter
     else:
-        selected_adapter = original_adapter
+        # The retained independent C++ worker uses historical post-finalize
+        # controllers. Compare matching schedules explicitly; production uses
+        # iter_init and is checked separately against the upstream driver.
+        from UnitTesting.netlist_legacy_profile import LegacyPostFinalizeAdapter
+        selected_adapter = LegacyPostFinalizeAdapter
+        selected_closed_adapter = original_closed_adapter
+    result["independent_controller_phase"] = "legacy_post_finalize"
+    result["closed_loop_controller_phase"] = "iter_init"
+    result["adapter_classes"] = {
+        "independent": selected_adapter.__module__ + "." + selected_adapter.__name__,
+        "closed_loop": selected_closed_adapter.__module__ + "." + selected_closed_adapter.__name__}
 
     def account(name, elapsed):
         value = result["netlist_calls"].setdefault(name, {"calls": 0, "seconds": 0.0})
@@ -71,12 +122,20 @@ def worker_run(source, backend, target):
         result["netlist_seconds"] += elapsed
 
     class ProfiledAdapter:
+        adapter_class = selected_adapter
+
         def __init__(self, *args, **kwargs):
             started = time.perf_counter()
             try:
-                self.actual = selected_adapter(*args, **kwargs)
+                self.actual = self.adapter_class(*args, **kwargs)
             finally:
                 account("construct", time.perf_counter() - started)
+
+        def __setattr__(self, name, value):
+            if name == "actual":
+                object.__setattr__(self, name, value)
+            else:
+                setattr(self.actual, name, value)
 
         def __getattr__(self, name):
             value = getattr(self.actual, name)
@@ -91,6 +150,9 @@ def worker_run(source, backend, target):
                     account(name, time.perf_counter() - started)
             return measured
 
+    class ProfiledClosedAdapter(ProfiledAdapter):
+        adapter_class = selected_closed_adapter
+
     class TimedFlowSolver(original_solver):
         def __init__(self, *args, **kwargs):
             started = time.perf_counter()
@@ -103,15 +165,38 @@ def worker_run(source, backend, target):
             def measured_solve(*args, **kwargs):
                 started = time.perf_counter()
                 try:
+                    if profiler is not None:
+                        return profiler.runcall(original_solve, *args, **kwargs)
                     return original_solve(*args, **kwargs)
                 finally:
                     result["solve_seconds"] = time.perf_counter() - started
+                    group = self.closedLoopBoundaryGroup
+                    if group is not None:
+                        result["coupling"] = {
+                            "type": "simultaneous characteristic / shared-return subsection",
+                            "accepted_steps": int(group.adapter._state.accepted_steps),
+                            "dt_s": group.adapter.delt,
+                            "actual_duration_s": int(group.adapter._state.accepted_steps) * group.adapter.delt,
+                            "runtime_memory_samples": int(self.vascularNetwork.runtimeMemoryManager.memoryArraySizeTime),
+                            "runtime_memory_chunks": int(self.vascularNetwork.runtimeMemoryManager.chunkCount),
+                            "memory_offset_after_solve": int(self.memoryOffset[0]),
+                            "surface_ids": group.adapter.surface_ids,
+                            "last_scaled_backward_error": group.last_solution.scaled_backward_error
+                            if group.last_solution is not None else None}
             self.solve = measured_solve
 
     started = time.perf_counter()
     try:
         with ExitStack() as stack:
+            if diagnostics:
+                original_popen = subprocess.Popen
+                stack.enter_context(patch.object(subprocess, "Popen", measured_popen))
+                if backend == "cpp":
+                    from UtilityLib.crimsonNetlistWorkerClient import CrimsonNetlistWorkerClient
+                    original_send = CrimsonNetlistWorkerClient._send
+                    stack.enter_context(patch.object(CrimsonNetlistWorkerClient, "_send", measured_send))
             stack.enter_context(patch.object(adapter_module, "NetlistPyAdapter", ProfiledAdapter))
+            stack.enter_context(patch.object(closed_adapter_module, "NetlistClosedLoopPyAdapter", ProfiledClosedAdapter))
             stack.enter_context(patch.object(flow_module, "FlowSolver", TimedFlowSolver))
             output_hdf5, output_xml, _ = solver.run_case(
                 str(source), str(target), "solution", "001",
@@ -124,6 +209,17 @@ def worker_run(source, backend, target):
     finally:
         result["wall_seconds"] = time.perf_counter() - started
         result["uses_circuit_adapter"] = bool(result["netlist_calls"])
+        if diagnostics:
+            usages = (resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN))
+            result["cpu_seconds"] = {label: {
+                "user": after.ru_utime-before.ru_utime, "system": after.ru_stime-before.ru_stime,
+                "total": after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime}
+                for label, before, after in zip(("starfish_process", "waited_children"), usage_before, usages)}
+            result["runtime_imports"] = {"jax": "jax" in sys.modules,
+                "cpp_adapter": "UtilityLib.crimsonNetlistAdapter" in sys.modules}
+        if profiler is not None:
+            from UnitTesting.profile_netlist_example import export_profile
+            result["profile"] = export_profile(profiler, target)
         save_json(target / "run.json", result)
     return 0 if result["status"] == "completed" else 1
 
@@ -132,7 +228,7 @@ def discover(examples):
     paths = []
     for path in examples.rglob("*.xml"):
         parts = path.relative_to(examples).parts[:-1]
-        if any(part == "results" or part == OUTPUT_NAME or part == "__pycache__"
+        if any(part == "results" or part == OUTPUT_NAME or part == "results_netlist_profile" or part == "results_closed_loop" or part == "__pycache__"
                or part.startswith("SolutionData_") for part in parts):
             continue
         try:
@@ -186,22 +282,28 @@ def classify(source):
             issues.append("Vessel {} declares multiple outlet conditions: {}".format(
                 endpoint.get("vesselId"), ", ".join(outlets)))
     notes = source.parent / "netlist_comparison_notes.md"
+    downstream = source.parent / "netlist_closed_loop_downstream.xml"
+    closed = downstream.is_file() and bool(ET.parse(downstream).getroot().findall("circuit"))
     return {"configured_duration_s": float(root.findtext("./simulationContext/totalTime")),
             "vessels": len(root.findall("./vessels/vessel")),
             "input_issues": issues,
             "comparison_notes": notes.read_text().strip() if notes.is_file() else "",
-            "model": "circuit netlist" if real else "constant netlist law" if netlists else "native Starfish control"}
+            "model": "closed-loop circuit netlist" if real and closed else "circuit netlist" if real else "constant netlist law" if netlists else "native Starfish control"}
 
 
-def run_backend(source, label, run):
+def run_backend(source, label, run, profile=False, diagnostics=False, worker_script=None):
     target = run / label
     target.mkdir()
     copied_input, hashes = snapshot(source, target / "inputs")
     environment = dict(os.environ)
     environment.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
                        PYTHONDONTWRITEBYTECODE="1")
-    command = [sys.executable, "-B", str(Path(__file__).resolve()), "--run-case",
+    command = [sys.executable, "-B", str(worker_script or Path(__file__).resolve()), "--run-case",
                str(copied_input), "--backend", label, "--target", str(target)]
+    if profile:
+        command.append("--profile")
+    if diagnostics:
+        command.append("--diagnostics")
     started = time.perf_counter()
     with (target / "console.log").open("w") as log:
         process = subprocess.run(command, cwd=target, env=environment, stdout=log,
@@ -301,6 +403,11 @@ def case_markdown(row):
               "The solver's initialization ramp, when enabled by the original case, is included in solve time.",
               "C++ adapter timing includes IPC and worker startup/shutdown. Adapter methods are measured",
               "at their outer boundary; their time is also included in the whole run.", ""]
+    lines += ["## Lifecycle profile", "",
+              "Closed-loop comparisons use pre-solve (`iter_init`) controllers in both backends.",
+              "Independent-circuit comparisons select the explicit `legacy_post_finalize` NumPy",
+              "profile to match the unchanged old C++ worker. Production independent NumPy runs",
+              "use `iter_init`; their lifecycle is verified against the upstream driver separately.", ""]
     metrics = row.get("accuracy")
     if metrics:
         lines += ["## Numerical agreement", "", "Differences are NumPy versus C++ with matching sample indices;",
@@ -310,7 +417,7 @@ def case_markdown(row):
                 ("vessels", "flow", "Vessel flow", "m³/s"), ("vessels", "area", "Vessel area", "m²"),
                 ("netlist", "pressure", "Netlist pressure", "Pa"), ("netlist", "flow", "Netlist flow", "m³/s"),
                 ("netlist", "volume", "Netlist volume", "m³")):
-            present = any(r["quantity"] == quantity for r in metrics[group].values())
+            present = any(r["quantity"] == quantity and r["samples"] > 0 for r in metrics[group].values())
             lines.append("| {} | {} | {} |".format(label, number(peak(metrics, group, quantity)) if present else "not used", unit))
         lines += ["", "Tolerance: rtol={}, pressure atol={} Pa, flow/volume atol={} m³/s or m³,".format(
             RTOL, ATOL["pressure"], ATOL["flow"]), "area atol={} m². Nonfinite output, missing datasets and mismatched steps fail.".format(ATOL["area"]),
@@ -330,6 +437,9 @@ def summary_markdown(rows, skipped_assets, examples=ROOT / "examples"):
                  passed, skipped, len(rows)-passed-skipped), "",
              "All original configured durations and input physics were retained. Results are stored",
              "inside each case under `results_netlist_comparison/`. Older results were retained.", "",
+             "Closed-loop controls run at `iter_init` in both backends. Independent comparisons",
+             "use the explicit historical `legacy_post_finalize` profile to match the old C++ worker;",
+             "production independent NumPy uses `iter_init` and is validated separately.", "",
              "| Case | Model | Duration (s) | Status | C++ solve (s) | NumPy solve (s) | C++/NumPy solve ratio | Max vessel ΔP (Pa) | Report |",
              "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |"]
     for row in rows:
@@ -355,10 +465,13 @@ def summary_markdown(rows, skipped_assets, examples=ROOT / "examples"):
               "| Case | Max netlist ΔP (Pa) | Max netlist ΔQ (m³/s) | Max netlist ΔV (m³) | C++ adapter (s) | NumPy adapter (s) |",
               "| --- | ---: | ---: | ---: | ---: | ---: |"]
     for row in rows:
-        if row["model"] != "circuit netlist" or "accuracy" not in row:
+        if row["model"] not in ("circuit netlist", "closed-loop circuit netlist") or "accuracy" not in row:
             continue
         lines.append("| {} | {} | {} | {} | {} | {} |".format(row["case"],
-            *(number(peak(row["accuracy"], "netlist", kind)) for kind in ("pressure", "flow", "volume")),
+            *(number(peak(row["accuracy"], "netlist", kind))
+              if any(item["quantity"] == kind and item["samples"] > 0
+                     for item in row["accuracy"]["netlist"].values()) else "not used"
+              for kind in ("pressure", "flow", "volume")),
             number(row["cpp"]["netlist_seconds"]), number(row["python"]["netlist_seconds"])))
     lines += [""]
     noted = [row for row in rows if row.get("comparison_notes")]
@@ -391,10 +504,12 @@ def main():
     parser.add_argument("--run-case", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--backend", choices=("cpp", "python"), help=argparse.SUPPRESS)
     parser.add_argument("--target", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--profile", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--diagnostics", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--examples", type=Path, default=ROOT / "examples")
     args = parser.parse_args()
     if args.run_case:
-        raise SystemExit(worker_run(args.run_case, args.backend, args.target))
+        raise SystemExit(worker_run(args.run_case, args.backend, args.target, args.profile, args.diagnostics))
     examples = args.examples.resolve()
     rows = []
     sources = list(discover(examples))
@@ -405,6 +520,8 @@ def main():
     assets.append("Branch DAT/XML exports and circuit-only XML files are supporting assets, not additional 1D input cases.")
     for source in sources:
         case_name = str(source.parent.relative_to(examples))
+        if case_name == ".":
+            case_name = source.parent.name
         if source.name != "input.xml":
             case_name += " / " + source.name
         output = source.parent / OUTPUT_NAME

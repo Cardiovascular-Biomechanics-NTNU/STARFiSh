@@ -15,7 +15,7 @@ import UtilityLib.classStarfishBaseObject as cSBO
 
 import UtilityLib.progressBar as cPB
 
-from NetworkLib.classBoundaryConditions import VaryingElastance, Valve
+from NetworkLib.classBoundaryConditions import VaryingElastance, Valve, Netlist
 from NetworkLib.classVascularNetwork import VascularNetwork
 
 from .classBoundarys import Boundary
@@ -72,6 +72,7 @@ class FlowSolver(cSBO.StarfishBaseObject):
         self.currentTimeStep = [0]
 
         self.cycleMode = False
+        self.closedLoopBoundaryGroup = None
 
         # Initialize indices to track where in memory the current solution is stored
         self.memoryOffset = [0]
@@ -97,6 +98,7 @@ class FlowSolver(cSBO.StarfishBaseObject):
 
         # initialize system
         self.vascularNetwork.currentMemoryIndex = self.currentMemoryIndex
+        self.validateClosedLoopProfile()
         self.vascularNetwork.initialize(initializeForSimulation = True)
 
         self.initializeTimeVariables(quiet)
@@ -116,6 +118,23 @@ class FlowSolver(cSBO.StarfishBaseObject):
 
         if self.quiet==False:
             self.initOutput() # feedback
+
+    def validateClosedLoopProfile(self):
+        """Reject unsupported initialization before open-terminal heuristics run."""
+        from UtilityLib.netlistClosedLoopPyAdapter import downstream_file
+        for boundaries in self.vascularNetwork.boundaryConditions.values():
+            for bc in boundaries:
+                if not isinstance(bc, Netlist) or bc.Rtilde is not None:
+                    continue
+                path = os.path.join(bc.networkDirectory or '.', 'netlist_surfaces.xml')
+                if downstream_file(path) is None:
+                    continue
+                if self.vascularNetwork.initialsationMethod != 'ConstantPressure':
+                    raise NotImplementedError("closed-loop Starfish currently requires ConstantPressure initialization; Auto assumes independent terminal loads")
+                if self.vascularNetwork.solvingSchemeField != 'MacCormack_Flux':
+                    raise NotImplementedError("closed-loop Starfish currently supports MacCormack_Flux")
+                if self.venousPool is not None:
+                    raise NotImplementedError("closed-loop return circuits cannot yet be combined with a Starfish venousPool")
 
     """
     ########################################################################################
@@ -438,6 +457,27 @@ class FlowSolver(cSBO.StarfishBaseObject):
         self.vascularNetwork.runtimeMemoryManager.registerGlobalTimeSteps(self.currentMemoryIndex,self.currentTimeStep)
         
         
+        from NetworkLib.netlistManager import get_default_netlist_manager
+        manager = get_default_netlist_manager()
+        if manager.has_closed_loop():
+            from NetworkLib.netlistCoupling import ClosedLoopBoundaryGroup
+            members = {}
+            objects = set()
+            for boundaries in self.boundarys.values():
+                for boundary in boundaries:
+                    bc = boundary.omegaFunction
+                    if isinstance(bc, Netlist) and bc.Rtilde is None:
+                        if bc.surfaceId in members:
+                            raise ValueError("duplicate closed-loop endpoint surface")
+                        members[int(bc.surfaceId)] = boundary
+                        objects.add(boundary)
+            self.closedLoopBoundaryGroup = ClosedLoopBoundaryGroup(manager, members, self.dt)
+            self.numericalObjects = [self.closedLoopBoundaryGroup] + [obj for obj in self.numericalObjects if obj not in objects]
+        from NetworkLib.netlistDriver import OneDDriver
+        self.netlistDriver = OneDDriver(manager, self.dt, enforce_consecutive=not self.cycleMode)
+        self.domainNumericalObjects = self.numericalObjects
+        # Every profile accepts circuits before output callbacks or rollover.
+        self.numericalObjects = [self.advanceOneDDomain, self.finalizeOneDTimestep]
         self.numericalObjects.append(self.vascularNetwork)
 
         # TODO: This depends on sequential iteration through the numerical objects list!!!!
@@ -489,16 +529,30 @@ class FlowSolver(cSBO.StarfishBaseObject):
         Advance the global CRIMSON netlist once after all STARFiSh boundary
         objects have recorded their final pressure/flow for timestep n.
         """
-        from NetworkLib.netlistManager import get_default_netlist_manager
-        get_default_netlist_manager().finalize_timestep(n)
+        if self.netlistDriver.prepared is None or self.netlistDriver.prepared.index != n:
+            raise RuntimeError("cannot finalize a different one-dimensional timestep")
+        self.netlistDriver.iter_finalize()
+
+    def finalizeOneDTimestep(self):
+        self.finalizeNetlistTimestep(self.currentTimeStep[0])
+
+    def advanceOneDDomain(self):
+        self.netlistDriver.iter_step(self._advanceDomainObjects)
+
+    def _advanceDomainObjects(self):
+        for numericalObject in self.domainNumericalObjects:
+            try:
+                numericalObject()
+            except Exception:
+                logger.critical("Exception in one-dimensional domain object %s", numericalObject)
+                raise
 
     def startNetlistTimestep(self, n):
         """
         Run CRIMSON's netlist start-of-timestep hook before STARFiSh boundary
         objects request netlist coefficients for timestep n.
         """
-        from NetworkLib.netlistManager import get_default_netlist_manager
-        get_default_netlist_manager().start_timestep(n, (n + 1) * self.dt, self.dt)
+        self.netlistDriver.iter_init(n, n * self.dt, self.dt)
 
     def MacCormack_Field(self):
         """
@@ -509,6 +563,12 @@ class FlowSolver(cSBO.StarfishBaseObject):
         imposing the boundary conditions based on Riemann Invariants and then solving the vessels,
         conncetions, bifucations with a predictor-corrector step method
         """
+        if self.closedLoopBoundaryGroup is not None and self.cycleMode:
+            raise NotImplementedError("closed-loop Starfish does not yet support cycleMode")
+        if self.cycleMode:
+            from NetworkLib.netlistManager import get_default_netlist_manager
+            if get_default_netlist_manager()._has_real_boundaries():
+                raise NotImplementedError("netlist timestep histories require continuous stepping; cycleMode is unsupported")
         if self.quiet == False:
             logger.info("Solving system ...")
             progressLog = cPB.CrimsonStyleProgress(self.nTSteps, self.dt)
@@ -545,14 +605,6 @@ class FlowSolver(cSBO.StarfishBaseObject):
                         raise # TODO: why does self.exception() not force the program to quit?
                         # self.exception()
 
-                try:
-                    self.finalizeNetlistTimestep(n)
-                except Exception:
-                    logger.critical("Exception caught while finalizing netlist boundary manager")
-                    self.vascularNetwork.runtimeMemoryManager.flushSolutionMemory()
-                    self.vascularNetwork.saveSolutionData()
-                    raise
-                
                 if self.quiet == False:
                     progressLog.progress(n)
                 
@@ -583,7 +635,6 @@ class FlowSolver(cSBO.StarfishBaseObject):
                     self.startNetlistTimestep(n)
                     for numericalObject in self.numericalObjects:
                         numericalObject()
-                    self.finalizeNetlistTimestep(n)
                 # 2. check for steady state
                 if self.quiet == False:
                     for vesselId in list(self.vessels.keys()):

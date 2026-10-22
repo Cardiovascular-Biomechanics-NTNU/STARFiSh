@@ -180,13 +180,16 @@ class NetlistBoundaryManager(object):
         """
         Start CRIMSON's global netlist timestep once before boundary solves.
 
-        This method now only marks the active timestep on the STARFiSh side.
-        The first real coefficient request triggers the NumPy manager's
-        start-of-timestep circuit initialization.
+        Initialize all circuits and their shared controllers before the domain
+        callback. Repeated boundary requests reuse that preparation.
         """
         timestep = int(timestep)
         if self._active_timestep == timestep:
             return None
+        if self._active_timestep is not None:
+            raise RuntimeError("previous netlist timestep has not been finalized")
+        if self._has_real_boundaries():
+            self._get_adapter(dt).start_timestep(timestep, time, dt)
         self._active_timestep = timestep
         return None
 
@@ -316,14 +319,25 @@ class NetlistBoundaryManager(object):
             # )
             # self.adapter.load(dt)
             from UtilityLib.netlistPyAdapter import NetlistPyAdapter
-            self.adapter = NetlistPyAdapter(
+            from UtilityLib.netlistClosedLoopPyAdapter import NetlistClosedLoopPyAdapter
+            adapter_class = NetlistClosedLoopPyAdapter if self.has_closed_loop() else NetlistPyAdapter
+            adapter = adapter_class(
                 self.netlist_file,
                 delt=dt,
                 surface_ids=self._real_surface_ids(),
                 output_directory=self.output_directory,
             )
-            self.adapter.load(dt)
+            try:
+                adapter.load(dt)
+            except Exception:
+                adapter.close()
+                raise
+            self.adapter = adapter
         return self.adapter
+
+    def has_closed_loop(self):
+        from UtilityLib.netlistClosedLoopPyAdapter import downstream_file
+        return self.netlist_file is not None and downstream_file(self.netlist_file) is not None
 
     def _real_surface_ids(self):
         """

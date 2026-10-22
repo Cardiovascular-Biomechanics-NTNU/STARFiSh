@@ -1,0 +1,562 @@
+{
+  "scope": "1D driver lifecycle; matching external ports for upstream identity checks; matching 1D coupling for native C++ comparisons",
+  "production_controller_phase": "iter_init",
+  "regular_reference": "ZeroDDriver",
+  "closed_loop_reference": "controlled_closed_loop_iter_init/step/finalize (called directly in production)",
+  "exchange": "simultaneous vessel characteristics; distinct from delayed generated 0D replacement exchange",
+  "upstream_identity": {
+    "regular_doubling_steps": 10,
+    "regular_feedback_rc_steps": 24,
+    "closed_loop_steps": 40,
+    "comparison": "exact array equality of tested controller, target, trial and accepted state fields"
+  },
+  "unit_checks": {
+    "tests": 37,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": true,
+    "test_seconds": {
+      "test_netlist_closed_loop.AdapterChecks.test_failed_second_endpoint_does_not_scatter_or_accept": 0.02306777611374855,
+      "test_netlist_closed_loop.AdapterChecks.test_history_and_snapshot_output_omit_unaccepted_trial": 0.021036599297076464,
+      "test_netlist_closed_loop.AdapterChecks.test_malformed_controls_fail_before_script_execution": 0.005571564193814993,
+      "test_netlist_closed_loop.AdapterChecks.test_missing_foreign_stale_and_mismatched_endpoint_states": 0.010337091982364655,
+      "test_netlist_closed_loop.AdapterChecks.test_monolithic_circuit_and_characteristic_system": 0.005446741357445717,
+      "test_netlist_closed_loop.AdapterChecks.test_reference_closed_loop_imports_neither_jax_nor_cpp": 0.17919322196394205,
+      "test_netlist_closed_loop.AdapterChecks.test_repeated_probes_do_not_accept_and_surface_zero_mapping": 0.007102940231561661,
+      "test_netlist_closed_loop.AdapterChecks.test_reversed_interface_component_preserves_external_flow": 0.007028986234217882,
+      "test_netlist_closed_loop.CharacteristicChecks.test_exact_shared_resistance": 0.00043442798778414726,
+      "test_netlist_closed_loop.CharacteristicChecks.test_mixed_pressure_input_returns_nonzero_flow": 0.0003661937080323696,
+      "test_netlist_closed_loop.CharacteristicChecks.test_packets_copy_transform_and_reject_mixed_generations": 0.0001881537027657032,
+      "test_netlist_closed_loop.CharacteristicChecks.test_port_permutation": 0.0003525060601532459,
+      "test_netlist_closed_loop.CharacteristicChecks.test_scalar_reduction_proximal_distal_and_signs": 0.0009656897746026516,
+      "test_netlist_closed_loop.CharacteristicChecks.test_singular_and_invalid_responses_fail": 0.00019826507195830345,
+      "test_netlist_closed_loop.FullStarfishChecks.test_memory_rollover_output_phase_and_endpoint_matching": 1.087669171858579,
+      "test_netlist_closed_loop.FullStarfishChecks.test_repeat_output_is_rejected_before_existing_files_change": 0.3689980022609234,
+      "test_netlist_closed_loop.FullStarfishChecks.test_unsupported_initialization_and_cycle_profiles_fail": 0.00032931892201304436,
+      "test_netlist_closed_loop.NativeCppChecks.test_native_adapter_does_not_call_numpy_circuit_kernel": 0.08427091175690293,
+      "test_netlist_closed_loop.NativeCppChecks.test_native_response_and_carried_rc_history": 1.4074206580407917,
+      "test_netlist_closed_loop.NativeCppChecks.test_static_diode_modes_match_native_cpp": 0.2591266999952495,
+      "test_netlist_driver.DriverChecks.test_clock_and_step_guards": 7.579196244478226e-05,
+      "test_netlist_driver.DriverChecks.test_event_order_repeated_trials_and_single_acceptance": 7.569091394543648e-05,
+      "test_netlist_driver.DriverChecks.test_failed_domain_or_initialization_cannot_accept_or_retry": 4.913192242383957e-05,
+      "test_netlist_driver.FullDomainLifecycleChecks.test_regular_and_closed_controllers_prepare_before_domain_accept_before_output": 0.6102802869863808,
+      "test_netlist_driver.UpstreamIdentityChecks.test_closed_failed_script_preflight_and_unaccepted_close": 0.00536815682426095,
+      "test_netlist_driver.UpstreamIdentityChecks.test_closed_loop_matches_upstream_full_state_controllers_and_diodes": 0.4279457409866154,
+      "test_netlist_driver.UpstreamIdentityChecks.test_failed_controller_preparation_cannot_be_retried": 0.00900851795449853,
+      "test_netlist_driver.UpstreamIdentityChecks.test_regular_controller_matches_zero_d_driver_first_and_every_step": 0.01641191402450204,
+      "test_netlist_driver.UpstreamIdentityChecks.test_regular_feedback_and_capacitor_history_match_upstream": 0.04374206205829978,
+      "test_netlist_driver.UpstreamIdentityChecks.test_regular_refreshes_actual_target_and_runs_once_before_probes": 0.0026962440460920334,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_bad_lifecycle_and_changed_dt_fail_before_acceptance": 0.0015645031817257404,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_builtin_elastance_initializes_before_first_probe": 0.0027252580039203167,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_controller_keeps_old_worker_post_finalize_timing": 0.0030638528987765312,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_global_manager_uses_numpy_and_resets_between_cases": 0.0032897531054913998,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_probes_do_not_accept_and_close_omits_incomplete_step": 0.0030465470626950264,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_surface_registration_rejects_conflicting_endpoints": 0.00010200589895248413,
+      "test_netlist_py_adapter.NetlistPyAdapterChecks.test_top_level_location_is_used_and_numpy_path_does_not_import_jax": 0.13460114691406488
+    }
+  },
+  "legacy_cpp_regression": {
+    "python": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:16:10) [GCC 11.2.0]",
+    "numpy": "2.4.0",
+    "netlist_source": "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py",
+    "controller_phase": "legacy_post_finalize (historical C++ compatibility; production uses iter_init)",
+    "worker": "/home/sadid/starfish/ext/build/crimson_netlist_worker",
+    "rtol": 5e-11,
+    "atol": {
+      "slope": 1e-06,
+      "pressure": 1e-08,
+      "flow": 1e-12,
+      "volume": 1e-12,
+      "area": 1e-14,
+      "time": 1e-14
+    },
+    "results": [
+      {
+        "name": "resistor",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "reversed_resistor",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "rcr_si",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "rcr_alpha",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0
+        ],
+        "alfi": 0.6,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 2.2737367544323206e-13,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "multi_rcr_si",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0,
+          7
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 5.684341886080802e-14,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "mixed_rc_l_fixed_flow",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0,
+          7,
+          42
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 1.7763568394002505e-15,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "diodes",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0,
+          7,
+          42
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 48,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; sign reverses every 4 steps; blocked P=+/-1000, Q=0",
+        "status": "passed"
+      },
+      {
+        "name": "pressure_chambers",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0,
+          7,
+          42
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "plain_volume_trackers",
+        "kind": "identical-port replay",
+        "steps": 64,
+        "surfaces": [
+          0,
+          7,
+          42
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 1.7763568394002505e-15,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "bleed_controller_trigger",
+        "kind": "identical-port replay",
+        "steps": 1604,
+        "surfaces": [
+          0,
+          7,
+          42
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=3.0; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "doubling_controller",
+        "kind": "identical-port replay",
+        "steps": 8,
+        "surfaces": [
+          0
+        ],
+        "alfi": 1.0,
+        "max_abs_error": {
+          "slope": 0.0,
+          "pressure": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "transition_flag_differences": 0,
+        "transition_flag_note": "Retained C++ getter resets and returns false; NumPy reports actual mode changes. Active modes match.",
+        "input": "Q=scale*(1+.25*sin(step*.37+slot)); scale=1e-05; positive flow",
+        "status": "passed"
+      },
+      {
+        "name": "single_vessel_resistor",
+        "kind": "complete STARFiSh 1D solve",
+        "duration_s": 1.0,
+        "steps": 474,
+        "vessel_datasets": 3,
+        "max_abs_error": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "area": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "input": "existing case inlet CSV",
+        "status": "passed"
+      },
+      {
+        "name": "single_vessel_rcr",
+        "kind": "complete STARFiSh 1D solve",
+        "duration_s": 1.0,
+        "steps": 474,
+        "vessel_datasets": 3,
+        "max_abs_error": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "area": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "input": "existing case inlet CSV",
+        "status": "passed"
+      },
+      {
+        "name": "bifurcation_rcr",
+        "kind": "complete STARFiSh 1D solve",
+        "duration_s": 1.0,
+        "steps": 459,
+        "vessel_datasets": 9,
+        "max_abs_error": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "area": 0.0,
+          "history": {
+            "pressure": 0.0,
+            "flow": 0.0,
+            "volume": 0.0
+          }
+        },
+        "input": "existing case inlet CSV",
+        "status": "passed"
+      },
+      {
+        "name": "bifurcation_heart",
+        "kind": "complete STARFiSh 1D solve",
+        "duration_s": 1.0,
+        "steps": 448,
+        "vessel_datasets": 3,
+        "max_abs_error": {
+          "pressure": 0.0,
+          "flow": 0.0,
+          "area": 0.0,
+          "history": {
+            "pressure": 1.000444171950221e-11,
+            "flow": 1.0842021724855044e-19,
+            "volume": 0.0
+          }
+        },
+        "input": "existing SI heart elastance law",
+        "status": "passed"
+      }
+    ],
+    "passed": true
+  },
+  "closed_loop_cases": {
+    "closed_loop_passive": {
+      "status": "passed",
+      "report": "/home/sadid/starfish/examples/closed_loop_passive/results_netlist_comparison/main_006/comparison.md",
+      "max_abs_error": {
+        "vessels": {
+          "pressure": 1.0913936421275139e-11,
+          "flow": 1.6542553459876486e-18,
+          "area": 5.963111948670274e-19,
+          "volume": null
+        },
+        "netlist": {
+          "pressure": 1.0913936421275139e-11,
+          "flow": 6.403569081242511e-19,
+          "area": null,
+          "volume": null
+        }
+      },
+      "solve_seconds": {
+        "cpp": 0.48812095122411847,
+        "python": 0.3702766029164195
+      },
+      "coupling": {
+        "cpp": {
+          "type": "simultaneous characteristic / shared-return subsection",
+          "accepted_steps": 112,
+          "dt_s": 0.0022470687661566542,
+          "actual_duration_s": 0.2516717018095453,
+          "runtime_memory_samples": 2,
+          "runtime_memory_chunks": 112,
+          "memory_offset_after_solve": 112,
+          "surface_ids": [
+            0,
+            4
+          ],
+          "last_scaled_backward_error": 0.0
+        },
+        "python": {
+          "type": "simultaneous characteristic / shared-return subsection",
+          "accepted_steps": 112,
+          "dt_s": 0.0022470687661566542,
+          "actual_duration_s": 0.2516717018095453,
+          "runtime_memory_samples": 2,
+          "runtime_memory_chunks": 112,
+          "memory_offset_after_solve": 112,
+          "surface_ids": [
+            0,
+            4
+          ],
+          "last_scaled_backward_error": 0.0
+        }
+      },
+      "adapter_classes": {
+        "cpp": {
+          "independent": "UtilityLib.crimsonNetlistAdapter.CrimsonNetlistAdapter",
+          "closed_loop": "UnitTesting.closed_loop_cpp_reference.CppClosedLoopAdapter"
+        },
+        "python": {
+          "independent": "UnitTesting.netlist_legacy_profile.LegacyPostFinalizeAdapter",
+          "closed_loop": "UtilityLib.netlistClosedLoopPyAdapter.NetlistClosedLoopPyAdapter"
+        }
+      }
+    },
+    "closed_loop_controlled": {
+      "status": "passed",
+      "report": "/home/sadid/starfish/examples/closed_loop_controlled/results_netlist_comparison/main_003/comparison.md",
+      "max_abs_error": {
+        "vessels": {
+          "pressure": 1.2732925824820995e-11,
+          "flow": 1.3179832659276913e-18,
+          "area": 7.047314121155779e-19,
+          "volume": null
+        },
+        "netlist": {
+          "pressure": 2.000888343900442e-11,
+          "flow": 4.497744949920335e-19,
+          "area": null,
+          "volume": null
+        }
+      },
+      "solve_seconds": {
+        "cpp": 0.49039680883288383,
+        "python": 0.42738192109391093
+      },
+      "coupling": {
+        "cpp": {
+          "type": "simultaneous characteristic / shared-return subsection",
+          "accepted_steps": 112,
+          "dt_s": 0.0022470687661566542,
+          "actual_duration_s": 0.2516717018095453,
+          "runtime_memory_samples": 2,
+          "runtime_memory_chunks": 112,
+          "memory_offset_after_solve": 112,
+          "surface_ids": [
+            0,
+            4
+          ],
+          "last_scaled_backward_error": 0.0
+        },
+        "python": {
+          "type": "simultaneous characteristic / shared-return subsection",
+          "accepted_steps": 112,
+          "dt_s": 0.0022470687661566542,
+          "actual_duration_s": 0.2516717018095453,
+          "runtime_memory_samples": 2,
+          "runtime_memory_chunks": 112,
+          "memory_offset_after_solve": 112,
+          "surface_ids": [
+            0,
+            4
+          ],
+          "last_scaled_backward_error": 0.0
+        }
+      },
+      "adapter_classes": {
+        "cpp": {
+          "independent": "UtilityLib.crimsonNetlistAdapter.CrimsonNetlistAdapter",
+          "closed_loop": "UnitTesting.closed_loop_cpp_reference.CppClosedLoopAdapter"
+        },
+        "python": {
+          "independent": "UnitTesting.netlist_legacy_profile.LegacyPostFinalizeAdapter",
+          "closed_loop": "UtilityLib.netlistClosedLoopPyAdapter.NetlistClosedLoopPyAdapter"
+        }
+      }
+    }
+  },
+  "retained_cpp_files_identical_to_HEAD": {
+    "UtilityLib/crimsonNetlistAdapter.py": true,
+    "UtilityLib/crimsonNetlistWorkerClient.py": true,
+    "ext/CrimsonNetlistRuntime.cpp": true,
+    "ext/CrimsonNetlistRuntime.hxx": true,
+    "ext/CrimsonNetlistWorker.cpp": true,
+    "ext/CrimsonControlSystems.cpp": true,
+    "ext/CrimsonControlSystems.hxx": true,
+    "ext/bindings.cpp": true
+  },
+  "python": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:16:10) [GCC 11.2.0]",
+  "numpy": "2.4.0",
+  "sha256": {
+    "/home/sadid/starfish/NetworkLib/netlistDriver.py": "2ef92a12743adcdbe17fe6441fc40c2e0c381c60ff38f012b050c9b700fa0394",
+    "/home/sadid/starfish/NetworkLib/netlistManager.py": "5bcc7c7b92b257696276100d97b6273c1651960009df6b9c52e09632af1813a6",
+    "/home/sadid/starfish/NetworkLib/netlistCoupling.py": "19c0c7522ab7fc414001eb3e2fd957e8dc2e78d36bbdc5ab0fd5efa9190dac1e",
+    "/home/sadid/starfish/UtilityLib/netlistPyAdapter.py": "b17c99421e45c47ec81b61c8a56ec2200ab8a177e9e8a03c5cbb058fe2323135",
+    "/home/sadid/starfish/UtilityLib/netlistClosedLoopPyAdapter.py": "d972fcd76b43f945e7cf548df6a8e4aad16650169bcf4c85c4faca16342de583",
+    "/home/sadid/starfish/SolverLib/class1DflowSolver.py": "d2a405b09ea78433f718987c3a6a5a96d35af569138632462551a619a78a3767",
+    "/home/sadid/starfish/ext/ClosedLoopValidationWorker.cpp": "102321f6b3bb5891fce81578b26d000ab1bb35444a9c6b54c638239818f600ef",
+    "/home/sadid/starfish/UnitTesting/test_netlist_driver.py": "9f7908cb3fcc875f044b8ec2096099c68a84236554e2e4f633cb00afe8118d34",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/pureZeroDDriver_reference.py": "fa0fd87546d51fb131b264074cc38b1be2e8049f2a042280730e0d4260100538",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/BoundaryConditionManager_reference.py": "1ada0aface676713ea56c62c1dcc2af5d905347454294382db770d7dbf16f321",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/ControlSystemsManager_reference.py": "63a32034a5c226eda225bb028fa3bff80ad195109cd74bc363677b7ef3a77877",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/ControllerManifest_reference.py": "dc92d400ff92844e3064188a07e4528cfc9019aa48a2ef7c91b5fd1649a0eeb4",
+    "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src/ClosedLoopDownstreamSubsection_reference.py": "0ee4eddabbae6c8d9c12675ae9b4453a11d9318ef107d0777ce53627d900489f",
+    "/home/sadid/starfish/ext/build/crimson_closed_loop_validation_worker": "533e970ab30626cf2c949efa6381e5c7b724eb258958a042704859be028a836a"
+  },
+  "passed": true
+}

@@ -18,10 +18,10 @@ from UtilityLib.netlistPyAdapter import NetlistPyAdapter
 
 
 class NetlistPyAdapterChecks(unittest.TestCase):
-    def make_adapter(self, output=None, controlled=False):
+    def make_adapter(self, output=None, controlled=False, **kwargs):
         kind = "controllers" if controlled else "passive"
         return NetlistPyAdapter(ROOT / "ext/tests" / kind / "netlist_surfaces.xml",
-                                delt=0.001, surface_ids=[0], output_directory=output)
+                                delt=0.001, surface_ids=[0], output_directory=output, **kwargs)
 
     def test_probes_do_not_accept_and_close_omits_incomplete_step(self):
         with tempfile.TemporaryDirectory() as output:
@@ -44,7 +44,7 @@ class NetlistPyAdapterChecks(unittest.TestCase):
             np.testing.assert_allclose(rows[1, 1:], [.001, 0.0])
 
     def test_controller_keeps_old_worker_post_finalize_timing(self):
-        adapter = self.make_adapter(controlled=True)
+        adapter = self.make_adapter(controlled=True, controller_phase="legacy_post_finalize")
         try:
             slopes = []
             for n in range(3):
@@ -90,10 +90,14 @@ class NetlistPyAdapterChecks(unittest.TestCase):
             tree.write(path)
             adapter = NetlistPyAdapter(path, delt=.001, surface_ids=[0])
             try:
-                data = adapter.compute_interface_data(0, 0, .001, .001, 1e-5)
-                self.assertAlmostEqual(data[2], .001 * 4.10246e-3, places=15)
-                self.assertAlmostEqual(data[3], 2.0 * 4.10246e-3, places=15)
+                adapter.load()
+                self.assertEqual(adapter._bcs[0].component_parameter_values[0], 4.10246e-3)
                 self.assertEqual(int(adapter._controller_state.current_timestep_index), 0)
+                data = adapter.compute_interface_data(0, 0, .001, .001, 1e-5)
+                elastance = adapter._bcs[0].component_parameter_values[0]
+                self.assertAlmostEqual(data[2], .001 * elastance, places=15)
+                self.assertAlmostEqual(data[3], 2.0 * elastance, places=15)
+                self.assertEqual(int(adapter._controller_state.current_timestep_index), 1)
             finally:
                 adapter.close()
 

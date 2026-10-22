@@ -1,0 +1,884 @@
+{
+  "case": "closed_loop_blood_loss_heart",
+  "source": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/input.xml",
+  "run_directory": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002",
+  "source_sha256": {
+    "bloodLossObserver.py": "ea1c37188bd00d6268a365c8a27b736317a40f95ada87d3ad49e773ca62340fe",
+    "bloodLossObserver_reference.py": "3c0d8c78e88db4a62431e1a796a88ab62047d2122d5495e93c0d4435e7169f90",
+    "elastanceController.py": "5045c9260a458a28e268408fe09883e236fae547c4f8eddc3e654f5703a0e974",
+    "elastanceController_reference.py": "8ae0344d5a5bb7f86b43a8da6b6c8367ee646cb45e305746eb63513ce02090c6",
+    "input.xml": "19cc5b7bcb3b563201ed559b21f968725daa512378f3c8ee9efd7c185e047902",
+    "netlist_closed_loop_downstream.xml": "9c20288969b9ba66a73bca00ba2f3123e83066287772f3af92deeabc56bb30ad",
+    "netlist_surfaces.xml": "b713e07ef31b6d90b024630382ff20311770a5a8fb9940101e026f92df1ffad9"
+  },
+  "configured_duration_s": 60.0,
+  "vessels": 5,
+  "input_issues": [],
+  "comparison_notes": "",
+  "model": "closed-loop circuit netlist",
+  "cpp": {
+    "backend": "cpp",
+    "status": "completed",
+    "input": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/cpp/inputs/input.xml",
+    "wall_seconds": 1282.1470384262502,
+    "initialization_seconds": 7.707690786104649,
+    "solve_seconds": 1263.378252292052,
+    "netlist_calls": {
+      "construct": {
+        "calls": 1,
+        "seconds": 0.0001533213071525097
+      },
+      "load": {
+        "calls": 1,
+        "seconds": 0.07542382134124637
+      },
+      "start_timestep": {
+        "calls": 182498,
+        "seconds": 70.60912487562746
+      },
+      "probe_port_response": {
+        "calls": 182498,
+        "seconds": 708.58288122667
+      },
+      "solve_trial": {
+        "calls": 182498,
+        "seconds": 144.45658348780125
+      },
+      "stage_trial": {
+        "calls": 182498,
+        "seconds": 0.31073158886283636
+      },
+      "update_state_all_and_finalize": {
+        "calls": 182498,
+        "seconds": 69.13250410044566
+      },
+      "close": {
+        "calls": 1,
+        "seconds": 10.067899709101766
+      }
+    },
+    "netlist_seconds": 1003.2353021311574,
+    "worker_requests": {
+      "LOAD": {
+        "calls": 1,
+        "seconds": 0.0063614086247980595,
+        "max_seconds": 0.0063614086247980595
+      },
+      "SNAPSHOT": {
+        "calls": 1,
+        "seconds": 0.0003360412083566189,
+        "max_seconds": 0.0003360412083566189
+      },
+      "START": {
+        "calls": 182498,
+        "seconds": 68.79691016161814,
+        "max_seconds": 0.04225922888144851
+      },
+      "QUERY": {
+        "calls": 912490,
+        "seconds": 607.1150165442377,
+        "max_seconds": 0.012553415726870298
+      },
+      "TRIAL": {
+        "calls": 182498,
+        "seconds": 119.49689526157454,
+        "max_seconds": 0.007858742028474808
+      },
+      "ACCEPT": {
+        "calls": 182498,
+        "seconds": 41.96907661668956,
+        "max_seconds": 0.03233726508915424
+      },
+      "QUIT": {
+        "calls": 1,
+        "seconds": 0.00029110582545399666,
+        "max_seconds": 0.00029110582545399666
+      }
+    },
+    "launched_children": [
+      {
+        "pid": 1051272,
+        "executable": "/home/sadid/starfish/ext/build/crimson_closed_loop_validation_worker"
+      }
+    ],
+    "independent_controller_phase": "legacy_post_finalize",
+    "closed_loop_controller_phase": "iter_init",
+    "adapter_classes": {
+      "independent": "UtilityLib.crimsonNetlistAdapter.CrimsonNetlistAdapter",
+      "closed_loop": "__main__.HeartTraceCppAdapter"
+    },
+    "coupling": {
+      "type": "simultaneous characteristic / shared-return subsection",
+      "accepted_steps": 182498,
+      "dt_s": 0.000328771892569611,
+      "actual_duration_s": 60.000212850168865,
+      "runtime_memory_samples": 182499,
+      "runtime_memory_chunks": 1,
+      "memory_offset_after_solve": 182498,
+      "surface_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "last_scaled_backward_error": 0.0
+    },
+    "hdf5": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/cpp/SolutionData_001/solution.hdf5",
+    "output_xml": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/cpp/SolutionData_001/solution.xml",
+    "uses_circuit_adapter": true,
+    "cpu_seconds": {
+      "starfish_process": {
+        "user": 509.335169,
+        "system": 98.436224,
+        "total": 607.7713930000001
+      },
+      "waited_children": {
+        "user": 546.268825,
+        "system": 69.340301,
+        "total": 615.609126
+      }
+    },
+    "runtime_imports": {
+      "jax": false,
+      "cpp_adapter": true
+    },
+    "process_returncode": 0,
+    "process_wall_seconds": 1283.1115449680947,
+    "source_hashes": {
+      "bloodLossObserver.py": "ea1c37188bd00d6268a365c8a27b736317a40f95ada87d3ad49e773ca62340fe",
+      "bloodLossObserver_reference.py": "3c0d8c78e88db4a62431e1a796a88ab62047d2122d5495e93c0d4435e7169f90",
+      "elastanceController.py": "5045c9260a458a28e268408fe09883e236fae547c4f8eddc3e654f5703a0e974",
+      "elastanceController_reference.py": "8ae0344d5a5bb7f86b43a8da6b6c8367ee646cb45e305746eb63513ce02090c6",
+      "input.xml": "19cc5b7bcb3b563201ed559b21f968725daa512378f3c8ee9efd7c185e047902",
+      "netlist_closed_loop_downstream.xml": "9c20288969b9ba66a73bca00ba2f3123e83066287772f3af92deeabc56bb30ad",
+      "netlist_surfaces.xml": "b713e07ef31b6d90b024630382ff20311770a5a8fb9940101e026f92df1ffad9"
+    },
+    "console_log": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/cpp/console.log"
+  },
+  "python": {
+    "backend": "python",
+    "status": "completed",
+    "input": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/python/inputs/input.xml",
+    "wall_seconds": 812.4212245247327,
+    "initialization_seconds": 7.5805483548901975,
+    "solve_seconds": 794.1586819859222,
+    "netlist_calls": {
+      "construct": {
+        "calls": 1,
+        "seconds": 0.00017382390797138214
+      },
+      "load": {
+        "calls": 1,
+        "seconds": 0.029272793792188168
+      },
+      "start_timestep": {
+        "calls": 182498,
+        "seconds": 115.12898967787623
+      },
+      "probe_port_response": {
+        "calls": 182498,
+        "seconds": 172.73268542531878
+      },
+      "solve_trial": {
+        "calls": 182498,
+        "seconds": 153.1087882593274
+      },
+      "stage_trial": {
+        "calls": 182498,
+        "seconds": 0.27428659657016397
+      },
+      "update_state_all_and_finalize": {
+        "calls": 182498,
+        "seconds": 94.50526784732938
+      },
+      "close": {
+        "calls": 1,
+        "seconds": 9.706066484097391
+      }
+    },
+    "netlist_seconds": 545.4855309082195,
+    "worker_requests": {},
+    "launched_children": [],
+    "independent_controller_phase": "legacy_post_finalize",
+    "closed_loop_controller_phase": "iter_init",
+    "adapter_classes": {
+      "independent": "UnitTesting.netlist_legacy_profile.LegacyPostFinalizeAdapter",
+      "closed_loop": "__main__.HeartTraceNumpyAdapter"
+    },
+    "coupling": {
+      "type": "simultaneous characteristic / shared-return subsection",
+      "accepted_steps": 182498,
+      "dt_s": 0.000328771892569611,
+      "actual_duration_s": 60.000212850168865,
+      "runtime_memory_samples": 182499,
+      "runtime_memory_chunks": 1,
+      "memory_offset_after_solve": 182498,
+      "surface_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "last_scaled_backward_error": 0.0
+    },
+    "hdf5": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/python/SolutionData_001/solution.hdf5",
+    "output_xml": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/python/SolutionData_001/solution.xml",
+    "uses_circuit_adapter": true,
+    "cpu_seconds": {
+      "starfish_process": {
+        "user": 776.9119469999999,
+        "system": 18.497521,
+        "total": 795.409468
+      },
+      "waited_children": {
+        "user": 0.0,
+        "system": 0.0,
+        "total": 0.0
+      }
+    },
+    "runtime_imports": {
+      "jax": false,
+      "cpp_adapter": false
+    },
+    "process_returncode": 0,
+    "process_wall_seconds": 813.4744626781903,
+    "source_hashes": {
+      "bloodLossObserver.py": "ea1c37188bd00d6268a365c8a27b736317a40f95ada87d3ad49e773ca62340fe",
+      "bloodLossObserver_reference.py": "3c0d8c78e88db4a62431e1a796a88ab62047d2122d5495e93c0d4435e7169f90",
+      "elastanceController.py": "5045c9260a458a28e268408fe09883e236fae547c4f8eddc3e654f5703a0e974",
+      "elastanceController_reference.py": "8ae0344d5a5bb7f86b43a8da6b6c8367ee646cb45e305746eb63513ce02090c6",
+      "input.xml": "19cc5b7bcb3b563201ed559b21f968725daa512378f3c8ee9efd7c185e047902",
+      "netlist_closed_loop_downstream.xml": "9c20288969b9ba66a73bca00ba2f3123e83066287772f3af92deeabc56bb30ad",
+      "netlist_surfaces.xml": "b713e07ef31b6d90b024630382ff20311770a5a8fb9940101e026f92df1ffad9"
+    },
+    "console_log": "/home/sadid/starfish/examples/closed_loop_blood_loss_heart/results_closed_loop/run_002/python/console.log"
+  },
+  "accuracy": {
+    "vessels": {
+      "vessels/Vessel1  -  1/Asol": {
+        "quantity": "area",
+        "max_abs": 2.7318154249139637e-14,
+        "rmse": 2.6473700473042953e-15,
+        "max_abs_over_cpp_peak": 3.781484271889098e-11,
+        "samples": 9124950,
+        "within_tolerance": true
+      },
+      "vessels/Vessel1  -  1/Psol": {
+        "quantity": "pressure",
+        "max_abs": 5.46966475667432e-07,
+        "rmse": 5.2034254151417287e-08,
+        "max_abs_over_cpp_peak": 3.795093264366704e-11,
+        "samples": 9124950,
+        "within_tolerance": false
+      },
+      "vessels/Vessel1  -  1/Qsol": {
+        "quantity": "flow",
+        "max_abs": 9.488107998931183e-14,
+        "rmse": 7.181488976065331e-15,
+        "max_abs_over_cpp_peak": 1.2830420445034208e-10,
+        "samples": 9124950,
+        "within_tolerance": true
+      },
+      "vessels/Vessel2  -  2/Asol": {
+        "quantity": "area",
+        "max_abs": 1.77883424136438e-14,
+        "rmse": 1.9600217239850085e-15,
+        "max_abs_over_cpp_peak": 3.248923398773804e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel2  -  2/Psol": {
+        "quantity": "pressure",
+        "max_abs": 4.4804801291320473e-07,
+        "rmse": 4.775312283189726e-08,
+        "max_abs_over_cpp_peak": 3.0378332262183473e-11,
+        "samples": 1824990,
+        "within_tolerance": false
+      },
+      "vessels/Vessel2  -  2/Qsol": {
+        "quantity": "flow",
+        "max_abs": 5.343329809648009e-14,
+        "rmse": 4.891505392149574e-15,
+        "max_abs_over_cpp_peak": 1.1642312633665871e-10,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel3  -  3/Asol": {
+        "quantity": "area",
+        "max_abs": 1.7512087700094492e-14,
+        "rmse": 1.7165432969867749e-15,
+        "max_abs_over_cpp_peak": 3.4254815953401335e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel3  -  3/Psol": {
+        "quantity": "pressure",
+        "max_abs": 4.410649125929922e-07,
+        "rmse": 4.160519975223274e-08,
+        "max_abs_over_cpp_peak": 3.124127471035537e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel3  -  3/Qsol": {
+        "quantity": "flow",
+        "max_abs": 4.145354849313665e-14,
+        "rmse": 4.322492251695639e-15,
+        "max_abs_over_cpp_peak": 8.404452491485986e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel4_RightContinuation  -  4/Asol": {
+        "quantity": "area",
+        "max_abs": 1.0447209503744448e-14,
+        "rmse": 1.5606220925060379e-15,
+        "max_abs_over_cpp_peak": 1.8294999176779896e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel4_RightContinuation  -  4/Psol": {
+        "quantity": "pressure",
+        "max_abs": 2.519245754228905e-07,
+        "rmse": 3.763464268101129e-08,
+        "max_abs_over_cpp_peak": 1.663210093047999e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel4_RightContinuation  -  4/Qsol": {
+        "quantity": "flow",
+        "max_abs": 1.9611048895917804e-14,
+        "rmse": 3.561143144103045e-15,
+        "max_abs_over_cpp_peak": 5.4277480791515575e-11,
+        "samples": 1824990,
+        "within_tolerance": true
+      },
+      "vessels/Vessel5_BleedStump  -  5/Asol": {
+        "quantity": "area",
+        "max_abs": 9.011834247590889e-15,
+        "rmse": 1.7059860389643054e-15,
+        "max_abs_over_cpp_peak": 2.2002150811746135e-11,
+        "samples": 1094994,
+        "within_tolerance": true
+      },
+      "vessels/Vessel5_BleedStump  -  5/Psol": {
+        "quantity": "pressure",
+        "max_abs": 2.5138797354884446e-07,
+        "rmse": 5.179690876983585e-08,
+        "max_abs_over_cpp_peak": 1.669656438753779e-11,
+        "samples": 1094994,
+        "within_tolerance": true
+      },
+      "vessels/Vessel5_BleedStump  -  5/Qsol": {
+        "quantity": "flow",
+        "max_abs": 2.1757166957013605e-14,
+        "rmse": 2.40507047102499e-15,
+        "max_abs_over_cpp_peak": 1.1114382929328063e-10,
+        "samples": 1094994,
+        "within_tolerance": true
+      }
+    },
+    "netlist": {
+      "netlistFlows_downstreamCircuit_0.dat": {
+        "quantity": "flow",
+        "accepted_steps": 182498,
+        "max_abs": 5.115719859446338e-14,
+        "rmse": 3.91089516872047e-15,
+        "max_abs_over_cpp_peak": 2.6648820084261226e-10,
+        "samples": 547497,
+        "within_tolerance": true
+      },
+      "netlistFlows_surface_0.dat": {
+        "quantity": "flow",
+        "accepted_steps": 182498,
+        "max_abs": 5.1053260028538754e-14,
+        "rmse": 6.406390047105334e-15,
+        "max_abs_over_cpp_peak": 8.623976046182948e-11,
+        "samples": 912495,
+        "within_tolerance": true
+      },
+      "netlistFlows_surface_1.dat": {
+        "quantity": "flow",
+        "accepted_steps": 182498,
+        "max_abs": 1.2386603244832206e-14,
+        "rmse": 2.027847448571217e-15,
+        "max_abs_over_cpp_peak": 5.956902287821516e-11,
+        "samples": 547497,
+        "within_tolerance": true
+      },
+      "netlistFlows_surface_2.dat": {
+        "quantity": "flow",
+        "accepted_steps": 182498,
+        "max_abs": 1.1179899779382996e-14,
+        "rmse": 1.6742263638688672e-15,
+        "max_abs_over_cpp_peak": 5.816170048752764e-11,
+        "samples": 547497,
+        "within_tolerance": true
+      },
+      "netlistFlows_surface_3.dat": {
+        "quantity": "flow",
+        "accepted_steps": 182498,
+        "max_abs": 2.513909084156038e-16,
+        "rmse": 6.021842326837468e-17,
+        "max_abs_over_cpp_peak": 1.6696759314093404e-11,
+        "samples": 182499,
+        "within_tolerance": true
+      },
+      "netlistPressures_downstreamCircuit_0.dat": {
+        "quantity": "pressure",
+        "accepted_steps": 182498,
+        "max_abs": 5.561605576076545e-08,
+        "rmse": 3.495175085035607e-09,
+        "max_abs_over_cpp_peak": 2.7336118370383242e-11,
+        "samples": 729996,
+        "within_tolerance": false
+      },
+      "netlistPressures_surface_0.dat": {
+        "quantity": "pressure",
+        "accepted_steps": 182498,
+        "max_abs": 2.9612470825668424e-05,
+        "rmse": 1.9338633365940337e-07,
+        "max_abs_over_cpp_peak": 1.8438855424347388e-09,
+        "samples": 1094994,
+        "within_tolerance": false
+      },
+      "netlistPressures_surface_1.dat": {
+        "quantity": "pressure",
+        "accepted_steps": 182498,
+        "max_abs": 2.7769965527113527e-07,
+        "rmse": 2.8539816511688322e-08,
+        "max_abs_over_cpp_peak": 1.882845622295969e-11,
+        "samples": 729996,
+        "within_tolerance": true
+      },
+      "netlistPressures_surface_2.dat": {
+        "quantity": "pressure",
+        "accepted_steps": 182498,
+        "max_abs": 2.518700057407841e-07,
+        "rmse": 2.4943874318532333e-08,
+        "max_abs_over_cpp_peak": 1.6628498231303045e-11,
+        "samples": 729996,
+        "within_tolerance": true
+      },
+      "netlistPressures_surface_3.dat": {
+        "quantity": "pressure",
+        "accepted_steps": 182498,
+        "max_abs": 2.51389792538248e-07,
+        "rmse": 4.258084927450536e-08,
+        "max_abs_over_cpp_peak": 1.6696685200292906e-11,
+        "samples": 364998,
+        "within_tolerance": true
+      },
+      "netlistVolumes_downstreamCircuit_0.dat": {
+        "quantity": "volume",
+        "accepted_steps": 182498,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "max_abs_over_cpp_peak": 0.0,
+        "samples": 0,
+        "within_tolerance": true
+      },
+      "netlistVolumes_surface_0.dat": {
+        "quantity": "volume",
+        "accepted_steps": 182498,
+        "max_abs": 1.417011581857086e-15,
+        "rmse": 4.68939584472094e-16,
+        "max_abs_over_cpp_peak": 7.723379069463774e-12,
+        "samples": 182499,
+        "within_tolerance": true
+      },
+      "netlistVolumes_surface_1.dat": {
+        "quantity": "volume",
+        "accepted_steps": 182498,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "max_abs_over_cpp_peak": 0.0,
+        "samples": 0,
+        "within_tolerance": true
+      },
+      "netlistVolumes_surface_2.dat": {
+        "quantity": "volume",
+        "accepted_steps": 182498,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "max_abs_over_cpp_peak": 0.0,
+        "samples": 0,
+        "within_tolerance": true
+      },
+      "netlistVolumes_surface_3.dat": {
+        "quantity": "volume",
+        "accepted_steps": 182498,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "max_abs_over_cpp_peak": 0.0,
+        "samples": 0,
+        "within_tolerance": true
+      }
+    },
+    "time": {
+      "VascularNetwork/simulationTime": {
+        "quantity": "time",
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "max_abs_over_cpp_peak": 0.0,
+        "samples": 182499,
+        "within_tolerance": true
+      }
+    },
+    "passed": false
+  },
+  "status": "failed_accuracy",
+  "monitor_validation": {
+    "passed": false,
+    "accuracy": {
+      "time_s": {
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "aortic_pressure_pa": {
+        "max_abs": 4.1552993934601545e-07,
+        "rmse": 5.6552258488737685e-08,
+        "rtol": 5e-11,
+        "atol": 1e-08,
+        "passed": false
+      },
+      "lv_pressure_pa": {
+        "max_abs": 5.907304512220435e-07,
+        "rmse": 1.490696368988788e-07,
+        "rtol": 5e-11,
+        "atol": 1e-08,
+        "passed": false
+      },
+      "venous_pressure_pa": {
+        "max_abs": 4.817025001102593e-09,
+        "rmse": 2.3715119815596436e-09,
+        "rtol": 5e-11,
+        "atol": 1e-08,
+        "passed": true
+      },
+      "aortic_flow_m3_s": {
+        "max_abs": 4.869426988230374e-14,
+        "rmse": 6.7432338845879975e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "mitral_flow_m3_s": {
+        "max_abs": 5.1053260028538754e-14,
+        "rmse": 4.788720864623097e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "bleed_flow_m3_s": {
+        "max_abs": 2.513909084156038e-16,
+        "rmse": 6.021842326837468e-17,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "systemic_bed_1_flow_m3_s": {
+        "max_abs": 1.2364106049753132e-14,
+        "rmse": 2.478405291308453e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "systemic_bed_2_flow_m3_s": {
+        "max_abs": 1.1179899779382996e-14,
+        "rmse": 2.0502122398011497e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "lv_volume_m3": {
+        "max_abs": 1.417011581857086e-15,
+        "rmse": 4.68939584472094e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "vessel_volume_m3": {
+        "max_abs": 3.176549735056655e-15,
+        "rmse": 1.5233819920853946e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "systemic_compliance_storage_m3": {
+        "max_abs": 2.4917134328061863e-15,
+        "rmse": 1.353498541766028e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "venous_compliance_storage_m3": {
+        "max_abs": 9.634220504706192e-16,
+        "rmse": 4.743023713759108e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "storage_ledger_m3": {
+        "max_abs": 4.780681059357583e-15,
+        "rmse": 3.469604066971629e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "lost_volume_m3": {
+        "max_abs": 1.1256186954744507e-15,
+        "rmse": 5.663913307950625e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "positive_lost_volume_m3": {
+        "max_abs": 1.1256186954744507e-15,
+        "rmse": 5.663913307950625e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "controller_lost_volume_m3": {
+        "max_abs": 1.1093556628871681e-15,
+        "rmse": 5.589450584361354e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "heart_rate_bpm": {
+        "max_abs": 2.0193624550302047e-11,
+        "rmse": 1.3179512774951737e-11,
+        "rtol": 5e-11,
+        "atol": 1e-08,
+        "passed": true
+      },
+      "heart_period_s": {
+        "max_abs": 1.092459456231154e-13,
+        "rmse": 7.515838241373909e-14,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "elastance_pa_per_m3": {
+        "max_abs": 0.006924107670783997,
+        "rmse": 0.0014281588028786285,
+        "rtol": 5e-11,
+        "atol": 1e-05,
+        "passed": false
+      },
+      "storage_plus_loss_defect_m3": {
+        "max_abs": 5.560114001157412e-15,
+        "rmse": 3.9924860447485485e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "vessel_continuity_defect_m3": {
+        "max_abs": 8.793421719943684e-16,
+        "rmse": 1.9158072365851007e-16,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      },
+      "junction_flow_integral_m3": {
+        "max_abs": 2.0024672024721024e-15,
+        "rmse": 1.3879703129439627e-15,
+        "rtol": 5e-11,
+        "atol": 1e-12,
+        "passed": true
+      }
+    },
+    "physical_checks_passed": {
+      "cpp": true,
+      "python": true
+    },
+    "diagnostics": {
+      "cpp": {
+        "endpoint_errors": {
+          "pressure_pa": 1.546140993013978e-10,
+          "flow_m3_s": 1.3789018754942206e-16
+        },
+        "endpoints_within_tolerance": true,
+        "min_vessel_pressure_pa": 7388.653126945637,
+        "min_vessel_area_m2": 0.0001171264096842761,
+        "max_shared_kcl_m3_s": 1.0028870095490916e-18,
+        "max_shared_pressure_pa": 1.000444171950221e-11,
+        "max_lv_volume_history_m3_s": 3.1848980917847936e-15,
+        "max_venous_capacitor_history_m3_s": 5.9568235760698585e-15,
+        "max_controller_loss_recurrence_m3": 1.984089975648473e-17,
+        "max_heart_rate_period_consistency_bpm": 1.4210854715202004e-14,
+        "min_lv_volume_m3": 8.71965229419387e-05,
+        "min_aortic_pressure_pa": 7446.9875271804,
+        "min_bleed_flow_m3_s": 0.0,
+        "initial_storage_ledger_m3": 0.001919267689530172,
+        "final_storage_ledger_m3": 0.0011964992121257002,
+        "final_net_lost_volume_m3": 0.000607225168946606,
+        "final_positive_lost_volume_m3": 0.000607225168946606,
+        "final_controller_lost_volume_m3": 0.0006072226444662215,
+        "initial_heart_rate_bpm": 69.76744186046511,
+        "final_heart_rate_bpm": 115.77124161159448,
+        "max_heart_rate_bpm": 115.77124161159448,
+        "peak_aortic_ejection_flow_m3_s": 0.00059199213628539,
+        "peak_mitral_filling_flow_m3_s": 0.000191967968685701,
+        "completed_controller_cycles": 91,
+        "max_storage_plus_loss_defect_m3": 0.00011554330845786576,
+        "final_storage_plus_loss_defect_m3": -0.00011554330845786576,
+        "vessel_volume_balance": {
+          "1": {
+            "final_m3": -2.0904693580433187e-06,
+            "max_abs_m3": 2.1945197406570197e-06
+          },
+          "2": {
+            "final_m3": -6.120887427096814e-05,
+            "max_abs_m3": 6.120887427096814e-05
+          },
+          "3": {
+            "final_m3": -3.508089669216934e-05,
+            "max_abs_m3": 3.508089669216934e-05
+          },
+          "4": {
+            "final_m3": -9.08815139085213e-06,
+            "max_abs_m3": 9.097501447645523e-06
+          },
+          "5": {
+            "final_m3": -8.074916745504766e-06,
+            "max_abs_m3": 8.075632333119995e-06
+          }
+        },
+        "final_vessel_continuity_defect_m3": -0.000115543308457543,
+        "final_junction_flow_integral_m3": -1.0755827652142447e-15,
+        "max_circuit_storage_balance_residual_m3": 7.671272471421187e-16,
+        "dt_s": 0.000328771892569611,
+        "accepted_steps": 182498,
+        "final_time_s": 60.00021285008843
+      },
+      "python": {
+        "endpoint_errors": {
+          "pressure_pa": 1.2263626558706164e-08,
+          "flow_m3_s": 4.89869646583263e-16
+        },
+        "endpoints_within_tolerance": true,
+        "min_vessel_pressure_pa": 7388.65312696806,
+        "min_vessel_area_m2": 0.00011712640968486478,
+        "max_shared_kcl_m3_s": 1.0028870095490916e-18,
+        "max_shared_pressure_pa": 1.000444171950221e-11,
+        "max_lv_volume_history_m3_s": 3.0455781126204062e-15,
+        "max_venous_capacitor_history_m3_s": 6.02645646059774e-15,
+        "max_controller_loss_recurrence_m3": 8.131516293641283e-18,
+        "max_heart_rate_period_consistency_bpm": 1.4210854715202004e-14,
+        "min_lv_volume_m3": 8.71965229421753e-05,
+        "min_aortic_pressure_pa": 7446.98752719883,
+        "min_bleed_flow_m3_s": 0.0,
+        "initial_storage_ledger_m3": 0.001919267689530172,
+        "final_storage_ledger_m3": 0.0011964992121296565,
+        "final_net_lost_volume_m3": 0.0006072251689477273,
+        "final_positive_lost_volume_m3": 0.0006072251689477273,
+        "final_controller_lost_volume_m3": 0.0006072226444673262,
+        "initial_heart_rate_bpm": 69.76744186046511,
+        "final_heart_rate_bpm": 115.77124161160938,
+        "max_heart_rate_bpm": 115.77124161160938,
+        "peak_aortic_ejection_flow_m3_s": 0.000591992136285514,
+        "peak_mitral_filling_flow_m3_s": 0.000191967968685767,
+        "completed_controller_cycles": 91,
+        "max_storage_plus_loss_defect_m3": 0.00011554330845278823,
+        "final_storage_plus_loss_defect_m3": -0.00011554330845278823,
+        "vessel_volume_balance": {
+          "1": {
+            "final_m3": -2.0904693580468424e-06,
+            "max_abs_m3": 2.1945197406575618e-06
+          },
+          "2": {
+            "final_m3": -6.120887427127122e-05,
+            "max_abs_m3": 6.120887427127122e-05
+          },
+          "3": {
+            "final_m3": -3.508089669220427e-05,
+            "max_abs_m3": 3.508089669220427e-05
+          },
+          "4": {
+            "final_m3": -9.088151390914573e-06,
+            "max_abs_m3": 9.097501447706666e-06
+          },
+          "5": {
+            "final_m3": -8.07491674551724e-06,
+            "max_abs_m3": 8.075632333132365e-06
+          }
+        },
+        "final_vessel_continuity_defect_m3": -0.00011554330845796269,
+        "final_junction_flow_integral_m3": 9.228728892196614e-16,
+        "max_circuit_storage_balance_residual_m3": 4.265793447644217e-15,
+        "dt_s": 0.000328771892569611,
+        "accepted_steps": 182498,
+        "final_time_s": 60.00021285008843
+      }
+    },
+    "volume_ledger": "V_vessels + V_LV + sum(C_systemic*(P_internal-P_reference)) + C_venous*(P_reservoir-P_reference)",
+    "loss_convention": "physical loss = dt*sum(q_bleed accepted n+1); controller integral uses positive prior-published q at iter_init; both are recorded",
+    "conservation_note": "storage+loss defect includes existing 1D discretization error; reported independently of algebraic KCL and backend agreement"
+  },
+  "provenance": {
+    "python": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:16:10) [GCC 11.2.0]",
+    "numpy": "2.4.0",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "netlist_source_directory": "/home/sadid/crimson/cfs_reg/CRIMSONFlowsolver/flowsolver/netlist_py/src",
+    "netlist_git_head": "af33280baca69bff60af56cb7c84e3127119ca19",
+    "netlist_source_sha256": {
+      "BoundaryConditionManager_jax.py": "a649edc7dc447c2d1fabfcd09390d95688e6bd0f1d43137f5bc2a62a439b0f35",
+      "BoundaryConditionManager_reference.py": "1ada0aface676713ea56c62c1dcc2af5d905347454294382db770d7dbf16f321",
+      "CircuitData.py": "80cc25d9960ff7994b7998793891fa900fce3b8ab5935331239ac0c1d6358698",
+      "CircuitData_diode_jax.py": "2c773fcbe8fd42d7c0bb5aad4b13ec1babb66e7f034ae0b0f2172ff4c08ed43e",
+      "CircuitData_diode_reference.py": "a263d72915a72521615add3149676f017739e5d02daf4009a705330b4aa5b282",
+      "ClosedLoopDownstreamSubsection.py": "421f17b9b756fb4a6789762a968dc990f1377e3636f35b72759b3e258d7519d8",
+      "ClosedLoopDownstreamSubsection_jax.py": "7a5cad4f922be0cf00ef1ad15050430adee337ee685887740d80015ab839098c",
+      "ClosedLoopDownstreamSubsection_reference.py": "a8ec52a7a83ed980b7210223621f75185d391986eb5ba1e5d2b51bc2a4024bca",
+      "ControlSystemsManager_jax.py": "54eb462402a50820dd8a0188f02958e44d8f567af5a5ec2cbd3866846ac6ef43",
+      "ControlSystemsManager_reference.py": "4dfd178befc22bc6f6c981a9eed3a5a4b911802b592f17e21b0559b77343dd38",
+      "ControllerLifecycle_jax.py": "87d941596e6fea19a7cba6f6c677d5d7ec8e546031f03242b3cc20e963f75b2d",
+      "ControllerLifecycle_reference.py": "fc641498a6a197ed2c7a8a581976f83f00bb302f009e5b48f8b96fedb81cf4d2",
+      "ControllerManifest_jax.py": "8f90fc5cbcd7b89ea3bf91776842765b50274796688f4b4070d047063a7a4810",
+      "ControllerManifest_reference.py": "0c32d0faaa93027ed9a83385df0458c72aad05bdae511cb0306c3c8783de561f",
+      "ControllerProtocol_jax.py": "c717f6d4561356e68a1876ce8b1b4d076b1df3e5e9322321fdcd14ba3faa64bf",
+      "ControllerProtocol_reference.py": "5bd845d5b07ec19b6e1cad9a22217df16e63ecdd8653a290e6f49f024f2de632",
+      "JaxRuntime.py": "87cb1cfeaf9b0cbbe46f8353257cc03ee9f911cf3a8f772553081003f5034e90",
+      "Netlist3DDomainReplacement_jax.py": "97c8771a61cff38b88efb23be5347437703199aa8179d884ea55c7786c1b4120",
+      "Netlist3DDomainReplacement_reference.py": "256a250357a1f099cae6229beab1d09f3b071eca41b48c67c0c16db6771866bb",
+      "NetlistCase.py": "75b6afc43d8bcbcb48dcfb728b6b348a9978d865de3c0bee23dd8601dcff1e9d",
+      "NetlistCircuit_jax.py": "281491dc3c783cf77f6af392f4f08de3ad4c489ae82b79fa4f2bb048eb705608",
+      "NetlistCircuit_reference.py": "e2c32168f4b495bba4c7661941bb2958d18d790d4ce347b4be3fcee3467571cc",
+      "NetlistIO.py": "06a33749b94771a59c0ccc5f128f14491314c617eda061c38e82c98d159ece60",
+      "NetlistXmlReader.py": "6b9bdabeb74bf1c45a2888be9b1499f9a0c3927ecdece5f1a8f9702f8c29766b",
+      "NetlistZeroDDomainCircuit.py": "373134a1759264932c99d75948f4efabbd6d77874f0c634b727b6b4e39c4b4c0",
+      "ParameterController_jax.py": "38e094d3497bce888e971ae497cef1a1c185d1305f3190689e6edc8a0f4dacb0",
+      "ParameterController_reference.py": "48a214198e4128b2d4436ec1f588be5881a66e47eeeada71610b6c0a70d69b77",
+      "RCR.py": "60812ebce99b574bf48ce9d4ad56a58efbf6abb12542b32617fdd3b0771ebe96",
+      "RCR_jax.py": "e2505ec1181a0d6f27e028a2173f9baad1113ee10ee78584c5218176c76a0f0f",
+      "RCR_reference.py": "9282cbee5f15f772b61ed1102177754c2d102299aef10f2be22fcc8cadcabb26",
+      "flowPrescriber_jax.py": "f00f4ff9ca1ef58f286ccce0cf3724cf22948fd8ac48dd59ee2c3f6343fc9da6",
+      "flowPrescriber_reference.py": "dc434444971e68c21fcac93387833b661f85ad54a55735da63fa1fda8bce13f8",
+      "netlistrun.py": "2df343ebb9a25bd4b38b891fb1118d554d30f03e4de282dd48b0c3bedc84643e",
+      "pressurePrescriber_jax.py": "e3444877a3b6bf753d589a1de8d8ebd185802185f5a81003381e590da4c934b4",
+      "pressurePrescriber_reference.py": "360fabd06179031f57e0fb8004642f91893b3b8568f63f5daf4d471442a74f4e",
+      "pureZeroDDriver_jax.py": "44fcd0df6319b9acedcf2bb4cc2382459317a2495aeeff2d471b615eab5708c5",
+      "pureZeroDDriver_reference.py": "1ee414584d4abf1b10243f3c63a531f11ec7ed71083e5a7cc4b5e0cc94a73a15"
+    },
+    "native_worker_sha256": "15cf9162bda370932d3696b877a771adc659e515a635e620f2d2646ea47c1b5d",
+    "starfish_implementation_sha256": {
+      "UtilityLib/netlistClosedLoopPyAdapter.py": "0459d22760cabb1ffac8de2db8864207c200985b58535350bf1fb868b9b14ad7",
+      "NetworkLib/netlistCoupling.py": "19c0c7522ab7fc414001eb3e2fd957e8dc2e78d36bbdc5ab0fd5efa9190dac1e",
+      "NetworkLib/netlistDriver.py": "2ef92a12743adcdbe17fe6441fc40c2e0c381c60ff38f012b050c9b700fa0394",
+      "ext/ClosedLoopValidationWorker.cpp": "d39a5c894e071b48a5fe7868caa7568285462376c166bab6f7f885ff63278f3f",
+      "UnitTesting/run_closed_loop_heart.py": "326c29387351b7c0be8d9444f0be1eaafa93351d948ba7b4af20ebbf366a785c",
+      "UnitTesting/analyze_closed_loop_heart.py": "7fac63a029173cc0eb759c949b511924516a49ef4166d96fd7f27f07fa406e44"
+    },
+    "regression_checks": {
+      "tests": 39,
+      "status": "passed",
+      "seconds": 5.144
+    },
+    "source_preservation": "All source_manifest hashes match; eight retained legacy C++ integration files match HEAD.",
+    "note": "Analysis and report code were updated after the solve to localize the balance defect; numerical backends were not rerun or modified."
+  }
+}

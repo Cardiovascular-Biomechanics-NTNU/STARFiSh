@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<netlistCircuits>
+  <circuit>
+    <circuitIndex>1</circuitIndex>
+    <components>
+      <component><index>1</index><type>resistor</type><startNodeIndex>1</startNodeIndex><endNodeIndex>2</endNodeIndex><parameterValue>1e8</parameterValue><control><type>customPython</type><source>returnResistance</source></control></component>
+      <component><index>2</index><type>capacitor</type><startNodeIndex>1</startNodeIndex><endNodeIndex>3</endNodeIndex><parameterValue>2e-9</parameterValue></component>
+    </components>
+    <nodes>
+      <node><index>1</index><initialPressure>8000</initialPressure><upstreamConnectivity><connection><upstreamCircuitSurfaceIndex>0</upstreamCircuitSurfaceIndex><connectsToUpstreamNode>2</connectsToUpstreamNode></connection></upstreamConnectivity></node>
+      <node><index>2</index><initialPressure>8000</initialPressure><upstreamConnectivity><connection><upstreamCircuitSurfaceIndex>4</upstreamCircuitSurfaceIndex><connectsToUpstreamNode>2</connectsToUpstreamNode></connection></upstreamConnectivity></node>
+      <node><index>3</index><initialPressure>0</initialPressure><prescribedPressureType>fixed</prescribedPressureType></node>
+    </nodes>
+  </circuit>
+</netlistCircuits>

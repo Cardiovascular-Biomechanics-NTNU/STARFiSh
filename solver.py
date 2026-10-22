@@ -123,6 +123,15 @@ def run_case(input_xml, output_dir, output_prefix, data_number, description, exp
         output_prefix = "{}_SolutionData_{}".format(network_name, data_number)
 
     solution_dir = os.path.join(results_dir, "SolutionData_{}".format(data_number))
+    # The shared return has fixed history/snapshot names. Reject reuse before
+    # the legacy cleanup or HDF5 writer can replace any existing run artifacts.
+    from UtilityLib.netlistClosedLoopPyAdapter import downstream_file
+    if (downstream_file(os.path.join(os.path.dirname(input_xml), "netlist_surfaces.xml")) is not None
+            and os.path.isdir(solution_dir)
+            and any(name == "netlist_closed_loop_inputs" or name.endswith((".hdf5", ".xml"))
+                    or (name.startswith("netlist") and name.endswith(".dat"))
+                    for name in os.listdir(solution_dir))):
+        raise FileExistsError("Closed-loop results already exist in {}; choose a new output directory or data number.".format(solution_dir))
     os.makedirs(solution_dir, exist_ok=True)
 
     output_hdf5 = os.path.join(solution_dir, "{}.hdf5".format(output_prefix))
