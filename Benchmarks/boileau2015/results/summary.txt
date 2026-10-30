@@ -1,0 +1,276 @@
+== singlePulse_inviscid
+  paper schemes vs DCG: RMS 0.05-0.53%
+  MacCormack_Flux    RMS  0.14%  peak@1.5s +0.24%  solve     3.1s
+  MacCormack_Matrix  RMS  0.34%  peak@1.5s +0.03%  solve     2.8s
+  LaxWendroff        RMS  0.12%  peak@1.5s +0.26%  solve    10.9s
+  TaylorGalerkin     RMS  0.03%  peak@1.5s -0.08%  solve    23.2s
+  FV_MUSCL_HLL       RMS  0.35%  peak@1.5s -5.90%  solve    20.8s
+  FV_MUSCL_Rusanov   RMS  0.35%  peak@1.5s -5.90%  solve    20.5s
+  MUSCL_Hancock      RMS  0.05%  peak@1.5s -1.62%  solve    15.4s
+  ADER3              RMS  0.02%  peak@1.5s -0.32%  solve   142.4s
+  DG_P2              RMS  0.02%  peak@1.5s +0.11%  solve   289.7s
+== singlePulse_viscous
+  paper schemes vs DCG: RMS 0.05-0.53%
+  MacCormack_Flux    RMS  0.14%  peak@1.5s +0.13%  solve     3.3s
+  MacCormack_Matrix  RMS  0.30%  peak@1.5s -0.02%  solve     2.9s
+  LaxWendroff        RMS  0.12%  peak@1.5s +0.17%  solve    11.4s
+  TaylorGalerkin     RMS  0.03%  peak@1.5s -0.10%  solve    23.4s
+  FV_MUSCL_HLL       RMS  0.33%  peak@1.5s -4.81%  solve    20.7s
+  FV_MUSCL_Rusanov   RMS  0.33%  peak@1.5s -4.81%  solve    20.8s
+  MUSCL_Hancock      RMS  0.05%  peak@1.5s -1.58%  solve    15.6s
+  ADER3              RMS  0.02%  peak@1.5s -0.36%  solve   149.2s
+  DG_P2              RMS  0.02%  peak@1.5s +0.06%  solve   298.8s
+== cca
+  Mid paper: P 0.23-0.28%  Q 0.26-0.30%
+    MacCormack_Flux    P  0.24%  Q  0.31%
+    MacCormack_Matrix  P  0.24%  Q  0.30%
+    LaxWendroff        P  0.27%  Q  0.31%
+    TaylorGalerkin     P  0.23%  Q  0.29%
+    FV_MUSCL_HLL       P  0.24%  Q  0.30%
+    FV_MUSCL_Rusanov   P  0.25%  Q  0.30%
+    MUSCL_Hancock      P  0.25%  Q  0.30%
+    ADER3              P  0.25%  Q  0.30%
+    DG_P2              P  0.25%  Q  0.30%
+== uta
+  Mid paper: P 1.19-1.31%  Q 1.72-1.82%
+    MacCormack_Flux    P  1.31%  Q  1.76%
+    LaxWendroff        P  1.33%  Q  1.73%
+    TaylorGalerkin     P  1.32%  Q  1.81%
+    FV_MUSCL_HLL       P  1.35%  Q  1.81%
+    FV_MUSCL_Rusanov   P  1.33%  Q  1.81%
+    MUSCL_Hancock      P  1.33%  Q  1.80%
+    ADER3              P  1.33%  Q  1.80%
+    DG_P2              P  1.32%  Q  1.80%
+== aorticBifurcation
+  AortaMid paper: P 0.42-0.47%  Q 0.83-0.94%
+    MacCormack_Flux    P  0.44%  Q  0.94%
+    MacCormack_Matrix  P  0.41%  Q  0.96%
+    LaxWendroff        P  0.44%  Q  0.94%
+    TaylorGalerkin     P  0.26%  Q  0.91%
+    FV_MUSCL_HLL       P  0.37%  Q  0.87%
+    FV_MUSCL_Rusanov   P  0.33%  Q  0.88%
+    MUSCL_Hancock      P  0.34%  Q  0.89%
+    ADER3              P  0.34%  Q  0.89%
+    DG_P2              P  0.34%  Q  0.89%
+  Junction paper: P 0.46-0.50%  Q 0.40-1.19%
+    MacCormack_Flux    P  0.47%  Q  1.18%
+    MacCormack_Matrix  P  0.46%  Q  1.18%
+    LaxWendroff        P  0.47%  Q  1.18%
+    TaylorGalerkin     P  0.25%  Q  1.04%
+    FV_MUSCL_HLL       P  0.41%  Q  1.07%
+    FV_MUSCL_Rusanov   P  0.37%  Q  1.07%
+    MUSCL_Hancock      P  0.37%  Q  1.10%
+    ADER3              P  0.37%  Q  1.09%
+    DG_P2              P  0.37%  Q  1.10%
+  IliacMid paper: P 0.48-0.53%  Q 0.54-0.61%
+    MacCormack_Flux    P  0.49%  Q  0.62%
+    MacCormack_Matrix  P  0.49%  Q  0.61%
+    LaxWendroff        P  0.49%  Q  0.62%
+    TaylorGalerkin     P  0.28%  Q  0.50%
+    FV_MUSCL_HLL       P  0.42%  Q  0.52%
+    FV_MUSCL_Rusanov   P  0.38%  Q  0.54%
+    MUSCL_Hancock      P  0.39%  Q  0.53%
+    ADER3              P  0.39%  Q  0.53%
+    DG_P2              P  0.39%  Q  0.54%
+== artery37
+  AorticArchII paper: P 1.68-1.86%  Q 12.16-12.34%
+    MacCormack_Flux    P  4.02%  Q 12.36%
+    MacCormack_Matrix  P  3.55%  Q 12.34%
+    LaxWendroff        P  4.32%  Q 12.36%
+    TaylorGalerkin     P  4.09%  Q 12.49%
+    FV_MUSCL_HLL       P  4.69%  Q 12.48%
+    FV_MUSCL_Rusanov   P  4.02%  Q 12.48%
+    MUSCL_Hancock      P  4.84%  Q 12.48%
+    ADER3              P  4.93%  Q 12.48%
+    DG_P2              P  5.67%  Q 12.50%
+  ThoracicAortaII paper: P 2.17-2.47%  Q 25.33-25.79%
+    MacCormack_Flux    P  5.17%  Q 25.81%
+    MacCormack_Matrix  P  4.66%  Q 25.88%
+    LaxWendroff        P  5.50%  Q 25.81%
+    TaylorGalerkin     P  5.25%  Q 25.92%
+    FV_MUSCL_HLL       P  5.88%  Q 25.91%
+    FV_MUSCL_Rusanov   P  5.17%  Q 25.92%
+    MUSCL_Hancock      P  6.04%  Q 25.91%
+    ADER3              P  6.14%  Q 25.90%
+    DG_P2              P  6.91%  Q 25.92%
+  LSubclavianI paper: P 3.01-3.13%  Q 13.88-14.45%
+    MacCormack_Flux    P  1.95%  Q 14.29%
+    MacCormack_Matrix  P  1.87%  Q 14.23%
+    LaxWendroff        P  2.06%  Q 14.32%
+    TaylorGalerkin     P  1.92%  Q 14.46%
+    FV_MUSCL_HLL       P  2.21%  Q 14.41%
+    FV_MUSCL_Rusanov   P  1.90%  Q 14.42%
+    MUSCL_Hancock      P  2.30%  Q 14.41%
+    ADER3              P  2.36%  Q 14.41%
+    DG_P2              P  2.90%  Q 14.41%
+  RIliacFemoralII paper: P 3.69-3.98%  Q 24.13-25.09%
+    MacCormack_Flux    P  2.14%  Q 25.04%
+    MacCormack_Matrix  P  2.29%  Q 25.50%
+    LaxWendroff        P  2.17%  Q 25.06%
+    TaylorGalerkin     P  2.17%  Q 25.26%
+    FV_MUSCL_HLL       P  2.30%  Q 25.26%
+    FV_MUSCL_Rusanov   P  2.17%  Q 25.24%
+    MUSCL_Hancock      P  2.35%  Q 25.26%
+    ADER3              P  2.39%  Q 25.26%
+    DG_P2              P  2.81%  Q 25.31%
+  LUlnar paper: P 2.57-2.66%  Q 12.37-12.84%
+    MacCormack_Flux    P  3.55%  Q 12.83%
+    MacCormack_Matrix  P  3.30%  Q 12.75%
+    LaxWendroff        P  3.79%  Q 12.86%
+    TaylorGalerkin     P  3.58%  Q 12.80%
+    FV_MUSCL_HLL       P  4.10%  Q 12.82%
+    FV_MUSCL_Rusanov   P  3.53%  Q 12.81%
+    MUSCL_Hancock      P  4.23%  Q 12.85%
+    ADER3              P  4.32%  Q 12.84%
+    DG_P2              P  5.01%  Q 12.87%
+  RAnteriorTibial paper: P 3.55-4.06%  Q 9.89-10.95%
+    MacCormack_Flux    P  5.89%  Q 10.33%
+    MacCormack_Matrix  P  5.62%  Q 10.36%
+    LaxWendroff        P  6.20%  Q 10.40%
+    TaylorGalerkin     P  5.93%  Q 10.53%
+    FV_MUSCL_HLL       P  6.59%  Q 10.41%
+    FV_MUSCL_Rusanov   P  5.87%  Q 10.37%
+    MUSCL_Hancock      P  6.76%  Q 10.45%
+    ADER3              P  6.87%  Q 10.45%
+    DG_P2              P  7.70%  Q 10.48%
+  RUlnar paper: P 2.49-2.71%  Q 11.27-11.78%
+    MacCormack_Flux    P  2.40%  Q 11.88%
+    MacCormack_Matrix  P  2.15%  Q 11.90%
+    LaxWendroff        P  2.63%  Q 11.82%
+    TaylorGalerkin     P  2.46%  Q 11.91%
+    FV_MUSCL_HLL       P  2.93%  Q 12.10%
+    FV_MUSCL_Rusanov   P  2.42%  Q 12.10%
+    MUSCL_Hancock      P  3.07%  Q 12.08%
+    ADER3              P  3.15%  Q 12.06%
+    DG_P2              P  3.82%  Q 12.09%
+  Splenic paper: P 2.21-2.36%  Q 9.14-9.79%
+    MacCormack_Flux    P  3.49%  Q  9.78%
+    MacCormack_Matrix  P  3.07%  Q  9.59%
+    LaxWendroff        P  3.77%  Q  9.88%
+    TaylorGalerkin     P  3.60%  Q 10.01%
+    FV_MUSCL_HLL       P  4.16%  Q 10.10%
+    FV_MUSCL_Rusanov   P  3.55%  Q  9.99%
+    MUSCL_Hancock      P  4.29%  Q 10.11%
+    ADER3              P  4.38%  Q 10.13%
+    DG_P2              P  5.10%  Q 10.25%
+== adan56
+  AorticArchI paper: P 0.02-0.85%  Q 0.08-46.44%
+    MacCormack_Flux    P  0.49%  Q  0.36%
+    MacCormack_Matrix  P  1.93%  Q  1.55%
+    LaxWendroff        P  0.63%  Q  0.37%
+    TaylorGalerkin     P  0.96%  Q  0.80%
+    FV_MUSCL_HLL       P  0.85%  Q  0.77%
+    FV_MUSCL_Rusanov   P  0.89%  Q  0.77%
+    MUSCL_Hancock      P  0.84%  Q  0.76%
+    ADER3              P  0.84%  Q  0.75%
+    DG_P2              P  0.82%  Q  0.80%
+  ThoAortaIII paper: P 0.02-0.70%  Q 0.12-864.72%
+    MacCormack_Flux    P  0.51%  Q  1.02%
+    MacCormack_Matrix  P  1.84%  Q  5.85%
+    LaxWendroff        P  0.56%  Q  1.11%
+    TaylorGalerkin     P  0.90%  Q  2.50%
+    FV_MUSCL_HLL       P  0.83%  Q  2.38%
+    FV_MUSCL_Rusanov   P  0.88%  Q  2.35%
+    MUSCL_Hancock      P  0.82%  Q  2.33%
+    ADER3              P  0.82%  Q  2.30%
+    DG_P2              P  0.82%  Q  2.44%
+  AbdomAortaV paper: P 0.05-0.95%  Q 0.12-254.81%
+    MacCormack_Flux    P  0.64%  Q  2.22%
+    MacCormack_Matrix  P  1.87%  Q  8.45%
+    LaxWendroff        P  0.62%  Q  1.93%
+    TaylorGalerkin     P  1.27%  Q  4.33%
+    FV_MUSCL_HLL       P  1.30%  Q  4.49%
+    FV_MUSCL_Rusanov   P  1.37%  Q  4.48%
+    MUSCL_Hancock      P  1.29%  Q  4.39%
+    ADER3              P  1.29%  Q  4.32%
+    DG_P2              P  1.29%  Q  4.74%
+  RightCCA paper: P 0.02-0.79%  Q 0.13-673.30%
+    MacCormack_Flux    P  0.53%  Q  0.75%
+    MacCormack_Matrix  P  2.00%  Q  4.41%
+    LaxWendroff        P  0.63%  Q  0.94%
+    TaylorGalerkin     P  1.01%  Q  2.35%
+    FV_MUSCL_HLL       P  0.92%  Q  2.37%
+    FV_MUSCL_Rusanov   P  0.96%  Q  2.36%
+    MUSCL_Hancock      P  0.92%  Q  2.34%
+    ADER3              P  0.91%  Q  2.31%
+    DG_P2              P  0.91%  Q  2.44%
+  RightRenal paper: P 0.04-1.12%  Q 0.11-427.63%
+    MacCormack_Flux    P  0.60%  Q  0.99%
+    MacCormack_Matrix  P  1.83%  Q  4.13%
+    LaxWendroff        P  0.56%  Q  1.21%
+    TaylorGalerkin     P  1.06%  Q  2.29%
+    FV_MUSCL_HLL       P  1.07%  Q  2.21%
+    FV_MUSCL_Rusanov   P  1.14%  Q  2.20%
+    MUSCL_Hancock      P  1.06%  Q  2.18%
+    ADER3              P  1.07%  Q  2.16%
+    DG_P2              P  1.05%  Q  2.25%
+  RightCommonIliac paper: P 0.05-1.19%  Q 0.11-132.82%
+    MacCormack_Flux    P  0.71%  Q  2.17%
+    MacCormack_Matrix  P  2.13%  Q  8.25%
+    LaxWendroff        P  0.73%  Q  1.98%
+    TaylorGalerkin     P  1.50%  Q  4.41%
+    FV_MUSCL_HLL       P  1.53%  Q  4.54%
+    FV_MUSCL_Rusanov   P  1.58%  Q  4.52%
+    MUSCL_Hancock      P  1.51%  Q  4.44%
+    ADER3              P  1.51%  Q  4.37%
+    DG_P2              P  1.52%  Q  4.81%
+  RightICA paper: P 0.03-0.89%  Q 0.15-808.64%
+    MacCormack_Flux    P  0.58%  Q  1.03%
+    MacCormack_Matrix  P  2.25%  Q  4.20%
+    LaxWendroff        P  0.70%  Q  1.39%
+    TaylorGalerkin     P  1.21%  Q  2.94%
+    FV_MUSCL_HLL       P  1.16%  Q  2.95%
+    FV_MUSCL_Rusanov   P  1.19%  Q  2.94%
+    MUSCL_Hancock      P  1.15%  Q  2.92%
+    ADER3              P  1.14%  Q  2.88%
+    DG_P2              P  1.18%  Q  3.02%
+  RightRadial paper: P 0.06-0.85%  Q 0.12-958.01%
+    MacCormack_Flux    P  0.75%  Q  1.30%
+    MacCormack_Matrix  P  2.34%  Q  3.84%
+    LaxWendroff        P  0.85%  Q  1.55%
+    TaylorGalerkin     P  1.36%  Q  2.69%
+    FV_MUSCL_HLL       P  1.46%  Q  2.95%
+    FV_MUSCL_Rusanov   P  1.44%  Q  2.93%
+    MUSCL_Hancock      P  1.44%  Q  2.92%
+    ADER3              P  1.41%  Q  2.87%
+    DG_P2              P  1.61%  Q  3.16%
+  RightInternalIliac paper: P 0.06-2.02%  Q 0.16-287.11%
+    MacCormack_Flux    P  0.83%  Q  1.51%
+    MacCormack_Matrix  P  2.61%  Q  5.73%
+    LaxWendroff        P  0.99%  Q  2.45%
+    TaylorGalerkin     P  1.98%  Q  4.68%
+    FV_MUSCL_HLL       P  2.00%  Q  4.57%
+    FV_MUSCL_Rusanov   P  2.03%  Q  4.54%
+    MUSCL_Hancock      P  1.97%  Q  4.51%
+    ADER3              P  1.96%  Q  4.48%
+    DG_P2              P  2.01%  Q  4.59%
+  RightPOstInteross paper: P 0.07-0.97%  Q 0.13-779.10%
+    MacCormack_Flux    P  0.92%  Q  1.23%
+    MacCormack_Matrix  P  2.50%  Q  3.41%
+    LaxWendroff        P  1.03%  Q  1.34%
+    TaylorGalerkin     P  1.40%  Q  2.37%
+    FV_MUSCL_HLL       P  1.53%  Q  2.75%
+    FV_MUSCL_Rusanov   P  1.44%  Q  2.70%
+    MUSCL_Hancock      P  1.52%  Q  2.72%
+    ADER3              P  1.48%  Q  2.70%
+    DG_P2              P  1.85%  Q  2.94%
+  RightFemoralII paper: P 0.07-2.84%  Q 0.16-421.10%
+    MacCormack_Flux    P  1.32%  Q  2.36%
+    MacCormack_Matrix  P  3.51%  Q 10.00%
+    LaxWendroff        P  1.35%  Q  3.18%
+    TaylorGalerkin     P  2.80%  Q  6.49%
+    FV_MUSCL_HLL       P  2.85%  Q  6.49%
+    FV_MUSCL_Rusanov   P  2.86%  Q  6.45%
+    MUSCL_Hancock      P  2.80%  Q  6.38%
+    ADER3              P  2.76%  Q  6.26%
+    DG_P2              P  2.95%  Q  6.76%
+  RightAntTibial paper: P 0.10-3.40%  Q 0.14-548.02%
+    MacCormack_Flux    P  1.98%  Q  2.70%
+    MacCormack_Matrix  P  4.81%  Q  8.03%
+    LaxWendroff        P  2.81%  Q  4.35%
+    TaylorGalerkin     P  5.15%  Q  7.51%
+    FV_MUSCL_HLL       P  5.31%  Q  7.77%
+    FV_MUSCL_Rusanov   P  5.27%  Q  7.73%
+    MUSCL_Hancock      P  5.22%  Q  7.66%
+    ADER3              P  5.14%  Q  7.53%
+    DG_P2              P  5.56%  Q  8.15%
