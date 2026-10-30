@@ -23,6 +23,7 @@ from .classBoundarys import Boundary
 from . import classSystemEquations
 from . import classConnections
 from . import classFields
+from . import classFieldsConservative
 from .classCommunicators import *
 from UtilityLib import classRuntimeMemoryManager
 from UtilityLib.moduleHelperFunctions import memoryUsagePsutil
@@ -361,7 +362,15 @@ class FlowSolver(cSBO.StarfishBaseObject):
         """
         creates field numerical objects for each vessel in the network
         """
+        scheme = self.vascularNetwork.solvingSchemeField
         for vesselId,vessel in self.vessels.items():
+            if scheme in classFieldsConservative.schemes:
+                self.fields[vesselId] = classFieldsConservative.schemes[scheme](vessel,
+                                            self.currentMemoryIndex,
+                                            self.dt,
+                                            self.systemEquations[vesselId],
+                                            self.rigidAreas)
+                continue
             self.fields[vesselId] = classFields.Field(  vessel,
                                             self.currentMemoryIndex,
                                             self.dt,
